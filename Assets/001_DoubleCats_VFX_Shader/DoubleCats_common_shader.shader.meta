@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: f13a92fef276a0c4a848c94bbdcc0278
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures:
+  - _base_texture: {instanceID: 0}
+  - _emissive_tex: {instanceID: 0}
+  - _dissolve_texture: {instanceID: 0}
+  - _Distort_tex: {instanceID: 0}
+  - _Distort_mask: {instanceID: 0}
+  - _color_Tex: {instanceID: 0}
+  - _displace_tex: {instanceID: 0}
+  - _displace_mask_tex: {instanceID: 0}
+  - _texcoord: {instanceID: 0}
+  nonModifiableTextures: []
+  preprocessorOverride: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

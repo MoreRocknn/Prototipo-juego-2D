@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 public class MainChar : MonoBehaviour
 {
@@ -23,11 +24,17 @@ public class MainChar : MonoBehaviour
     private bool isTouchingWall;
     private bool isWallSliding;
     private bool jumpPressed;
-
-    // --- ¡NUEVAS VARIABLES PARA EL FLIP! ---
     private bool isFacingRight = true;
-    private int wallSide = 1; // 1 para derecha, -1 para izquierda
-
+    private int wallSide = 1; 
+    public Transform attackPoint;     
+    public float attackRange = 0.5f;  
+    public LayerMask enemyLayer;      
+    public int attackDamage = 1;
+    public float playerKnockbackForce = 3f;
+    public Transform downAttackPoint;
+    public GameObject sideAttackEffect;
+    public GameObject downAttackEffect;
+    private bool isAttackingDown = false;
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
@@ -35,99 +42,145 @@ public class MainChar : MonoBehaviour
 
     void Update()
     {
-        // === INPUTS ===
+
         moveInput = Input.GetAxisRaw("Horizontal");
 
         if (Input.GetButtonDown("Jump"))
             jumpPressed = true;
-
-        // === CHEQUEOS DE FÍSICA ===
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, checkRadius, groundLayer);
         isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, checkRadius, wallLayer);
-
-        // === LÓGICA DE VOLTEO (FLIP) ===
-        // Si nos movemos a la izquierda y miramos a la derecha...
+        if (Input.GetButtonDown("Fire1")) 
+        {
+            Attack();
+        }
         if (moveInput < 0 && isFacingRight)
         {
             Flip();
         }
-        // Si nos movemos a la derecha y miramos a la izquierda...
         else if (moveInput > 0 && !isFacingRight)
         {
             Flip();
         }
 
-        // === LÓGICA DE WALL SLIDE ===
         if (isTouchingWall && !isGrounded && rb.linearVelocity.y < 0)
         {
             isWallSliding = true;
-            rb.linearVelocity = new Vector2(rb.linearVelocity.x, -wallSlideSpeed); // Desliza
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, -wallSlideSpeed); 
         }
         else
         {
             isWallSliding = false;
         }
+        isAttackingDown = false;
+        if (Input.GetButtonDown("Fire1"))
+        {
+            float verticalInput = Input.GetAxisRaw("Vertical"); 
+
+  
+            if (verticalInput < 0 && !isGrounded)
+            {
+                isAttackingDown = true;
+            }
+
+            Attack(); 
+        }
     }
 
     void FixedUpdate()
     {
-        // === APLICAR MOVIMIENTO ===
-        // ¡¡CORREGIDO!! Solo aplica movimiento si NO estás en la pared
         if (!isWallSliding)
         {
             rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
         }
 
-        // === LÓGICA DE SALTO ===
         if (jumpPressed)
         {
             if (isWallSliding)
             {
-                // Salta FUERA de la pared (usa 'wallSide' que se basa en isFacingRight)
                 rb.linearVelocity = new Vector2(-wallSide * wallJumpForce.x, wallJumpForce.y);
             }
             else if (isGrounded)
             {
-                // Salto normal
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
             }
 
             jumpPressed = false;
         }
     }
-
-    // --- ¡NUEVA FUNCIÓN DE FLIP! ---
     void Flip()
     {
-        // Cambia la dirección a la que mira
         isFacingRight = !isFacingRight;
-        wallSide *= -1; // Invierte el lado de la pared
-
-        // Invierte la escala local del personaje en el eje X
+        wallSide *= -1; 
         Vector3 scaler = transform.localScale;
         scaler.x *= -1;
         transform.localScale = scaler;
     }
+    void Attack()
+    {
+        // 1. Efecto Visual: Inicia la corutina del "slash"
+        StartCoroutine(ShowAttackEffect());
 
-    // --- (Tus otras funciones siguen igual) ---
+        // 2. Knockback del Jugador: (Solo si ataca de lado)
+        if (!isAttackingDown)
+        {
+            // Te da un empujoncito hacia atrás
+            float knockbackDir = isFacingRight ? -1 : 1;
+            rb.AddForce(new Vector2(knockbackDir * playerKnockbackForce, 0), ForceMode2D.Impulse);
+        }
 
+        // 3. Elige el punto de ataque (Lateral o Abajo)
+        Transform currentAttackPoint = isAttackingDown ? downAttackPoint : attackPoint;
+
+        // 4. Detectar enemigos
+        Collider2D[] hitEnemies = Physics2D.OverlapCircleAll(currentAttackPoint.position, attackRange, enemyLayer);
+
+        // 5. Aplicar daño a cada enemigo
+        foreach (Collider2D enemyCollider in hitEnemies)
+        {
+            Enemigo enemy = enemyCollider.GetComponent<Enemigo>();
+            if (enemy != null)
+            {
+                // Determina la dirección del knockback para el ENEMIGO
+                int enemyKnockbackDir = isFacingRight ? 1 : -1;
+
+                // Llama a la función de daño del enemigo
+                enemy.TakeDamage(attackDamage, enemyKnockbackDir);
+
+                // 6. ¡Pogo-Jump! (Rebote al golpear hacia abajo)
+                if (isAttackingDown)
+                {
+                    // Resetea tu velocidad vertical y te da un salto
+                    rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
+                }
+            }
+        }
+    }
+    private IEnumerator ShowAttackEffect()
+    {
+        // Elige qué efecto mostrar (lateral o abajo)
+        GameObject effectToShow = isAttackingDown ? downAttackEffect : sideAttackEffect;
+
+        if (effectToShow != null)
+        {
+            // 1. Lo activa
+            effectToShow.SetActive(true);
+
+            // 2. Espera 0.1 segundos
+            yield return new WaitForSeconds(0.1f);
+
+            // 3. Lo desactiva
+            effectToShow.SetActive(false);
+        }
+    }
     void OnDrawGizmos()
     {
         Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(groundCheck.position, checkRadius);
         Gizmos.color = Color.blue;
         Gizmos.DrawWireSphere(wallCheck.position, checkRadius);
-    }
-
-    void OnCollisionEnter2D(Collision2D collision)
-    {
-        if (collision.gameObject.CompareTag("Enemy"))
-        {
-            Enemigo enemy = collision.gameObject.GetComponent<Enemigo>();
-            if (enemy != null)
-            {
-                enemy.TakeDamage(1);
-            }
-        }
-    }
+        Gizmos.color = Color.red; 
+        Gizmos.DrawWireSphere(attackPoint.position, attackRange);
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(downAttackPoint.position, attackRange);
+    }  
 }

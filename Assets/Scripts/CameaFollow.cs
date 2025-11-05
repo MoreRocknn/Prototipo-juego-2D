@@ -1,24 +1,37 @@
 using UnityEngine;
 
-public class CameaFollow : MonoBehaviour
+public class CamaraScript : MonoBehaviour // O como se llame tu script
 {
     public Transform JUGADOR1111;
-    public float VelocidadCamara = 15;
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
-    void Start()
-    {
-        
-    }
+    public float VelocidadCamara = 5f;
 
-    // Update is called once per frame
-    void Update()
-    {
-        if(JUGADOR1111 != null)
-        {
-            
-            Vector3 posDeseada = new Vector3(JUGADOR1111.position.x, JUGADOR1111.position.y, transform.position.z);
-            transform.position = Vector3.Lerp(transform.position, posDeseada, VelocidadCamara * Time.deltaTime);
-        }
-    }
+    [Header("Zona Muerta Vertical")]
+    public float verticalDeadzone = 1.5f;
+
     
+    public Vector3 offset = new Vector3(0, 0, -10);
+
+
+    void LateUpdate()
+    {
+        if (JUGADOR1111 == null)
+            return;
+        float posX = JUGADOR1111.position.x + offset.x;
+        float posY = transform.position.y;
+
+        float playerY = JUGADOR1111.position.y + offset.y;
+        float topThreshold = transform.position.y + verticalDeadzone;
+        float bottomThreshold = transform.position.y - verticalDeadzone;
+
+        if (playerY > topThreshold)
+        {
+            posY = playerY - verticalDeadzone;
+        }
+        else if (playerY < bottomThreshold)
+        {
+            posY = playerY + verticalDeadzone;
+        }
+        Vector3 posDeseada = new Vector3(posX, posY, offset.z);
+        transform.position = Vector3.Lerp(transform.position, posDeseada, VelocidadCamara * Time.deltaTime);
+    }
 }
