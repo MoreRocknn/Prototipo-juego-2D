@@ -42,17 +42,48 @@ public class MainChar : MonoBehaviour
 
     void Update()
     {
-
+        // === INPUTS ===
         moveInput = Input.GetAxisRaw("Horizontal");
 
+        // Detectar si PULSAS el botón de salto
         if (Input.GetButtonDown("Jump"))
+        {
             jumpPressed = true;
+        }
+
+        // ¡¡AQUÍ ESTÁ EL ARREGLO!!
+        // Detectar si SUELTAS el botón de salto
+        if (Input.GetButtonUp("Jump"))
+        {
+            // Y si estás subiendo (velocidad Y positiva)
+            if (rb.linearVelocity.y > 0)
+            {
+                // Corta la velocidad vertical (ej: a la mitad)
+                rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y * 0.5f);
+            }
+        }
+
+        // Detectar el botón de ataque
+        isAttackingDown = false; // Resetea el ataque hacia abajo
+        if (Input.GetButtonDown("Fire1"))
+        {
+            float verticalInput = Input.GetAxisRaw("Vertical");
+
+            // Comprueba si pulsas "S" Y no estás en el suelo
+            if (verticalInput < 0 && !isGrounded)
+            {
+                isAttackingDown = true;
+            }
+
+            Attack(); // Llama a la función de ataque
+        }
+
+
+        // === CHEQUEOS DE FÍSICA ===
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, checkRadius, groundLayer);
         isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, checkRadius, wallLayer);
-        if (Input.GetButtonDown("Fire1")) 
-        {
-            Attack();
-        }
+
+        // === LÓGICA DE VOLTEO (FLIP) ===
         if (moveInput < 0 && isFacingRight)
         {
             Flip();
@@ -62,27 +93,15 @@ public class MainChar : MonoBehaviour
             Flip();
         }
 
+        // === LÓGICA DE WALL SLIDE ===
         if (isTouchingWall && !isGrounded && rb.linearVelocity.y < 0)
         {
             isWallSliding = true;
-            rb.linearVelocity = new Vector2(rb.linearVelocity.x, -wallSlideSpeed); 
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, -wallSlideSpeed);
         }
         else
         {
             isWallSliding = false;
-        }
-        isAttackingDown = false;
-        if (Input.GetButtonDown("Fire1"))
-        {
-            float verticalInput = Input.GetAxisRaw("Vertical"); 
-
-  
-            if (verticalInput < 0 && !isGrounded)
-            {
-                isAttackingDown = true;
-            }
-
-            Attack(); 
         }
     }
 
@@ -162,15 +181,15 @@ public class MainChar : MonoBehaviour
             }
         }
     }
-    void OnDrawGizmos()
-    {
-        Gizmos.color = Color.green;
-        Gizmos.DrawWireSphere(groundCheck.position, checkRadius);
-        Gizmos.color = Color.blue;
-        Gizmos.DrawWireSphere(wallCheck.position, checkRadius);
-        Gizmos.color = Color.red; 
-        Gizmos.DrawWireSphere(attackPoint.position, attackRange);
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawWireSphere(downAttackPoint.position, attackRange);
-    }  
+    // void OnDrawGizmos()
+    // {
+    //Gizmos.color = Color.green;
+    //Gizmos.DrawWireSphere(groundCheck.position, checkRadius);
+    // Gizmos.color = Color.blue;
+    // Gizmos.DrawWireSphere(wallCheck.position, checkRadius);
+    // Gizmos.color = Color.red; 
+    // Gizmos.DrawWireSphere(attackPoint.position, attackRange);
+    //Gizmos.color = Color.yellow;
+    //Gizmos.DrawWireSphere(downAttackPoint.position, attackRange);
+    //}  
 }
