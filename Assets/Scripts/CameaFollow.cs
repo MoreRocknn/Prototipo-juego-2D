@@ -1,6 +1,6 @@
 using UnityEngine;
 
-public class CamaraScript : MonoBehaviour // O como se llame tu script
+public class CamaraScript : MonoBehaviour 
 {
     public Transform JUGADOR1111;
     public float VelocidadCamara = 5f;
