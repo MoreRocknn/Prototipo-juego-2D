@@ -117,59 +117,49 @@ public class MainChar : MonoBehaviour
     }
     void Attack()
     {
-        // 1. Efecto Visual: Inicia la corutina del "slash"
-        StartCoroutine(ShowAttackEffect());
+        // 1. Elige qué efecto mostrar (lateral o abajo)
+        GameObject effectToShow = isAttackingDown ? downAttackEffect : sideAttackEffect;
 
-        // 2. Knockback del Jugador: (Solo si ataca de lado)
+        // 2. ¡¡NUEVO!! Obtén el sistema de partículas y dale a "Play"
+        if (effectToShow != null)
+        {
+            // Busca el componente "ParticleSystem"
+            ParticleSystem ps = effectToShow.GetComponent<ParticleSystem>();
+
+            // Si lo encuentra, le da a "Play"
+            if (ps != null)
+            {
+                ps.Play();
+            }
+        }
+
+        // 3. Knockback del Jugador: (Esto ya lo tenías)
         if (!isAttackingDown)
         {
-            // Te da un empujoncito hacia atrás
             float knockbackDir = isFacingRight ? -1 : 1;
             rb.AddForce(new Vector2(knockbackDir * playerKnockbackForce, 0), ForceMode2D.Impulse);
         }
 
-        // 3. Elige el punto de ataque (Lateral o Abajo)
+        // 4. Elige el punto de ataque (Lateral o Abajo)
         Transform currentAttackPoint = isAttackingDown ? downAttackPoint : attackPoint;
 
-        // 4. Detectar enemigos
+        // 5. Detectar enemigos
         Collider2D[] hitEnemies = Physics2D.OverlapCircleAll(currentAttackPoint.position, attackRange, enemyLayer);
 
-        // 5. Aplicar daño a cada enemigo
+        // 6. Aplicar daño a cada enemigo
         foreach (Collider2D enemyCollider in hitEnemies)
         {
             Enemigo enemy = enemyCollider.GetComponent<Enemigo>();
             if (enemy != null)
             {
-                // Determina la dirección del knockback para el ENEMIGO
                 int enemyKnockbackDir = isFacingRight ? 1 : -1;
-
-                // Llama a la función de daño del enemigo
                 enemy.TakeDamage(attackDamage, enemyKnockbackDir);
 
-                // 6. ¡Pogo-Jump! (Rebote al golpear hacia abajo)
                 if (isAttackingDown)
                 {
-                    // Resetea tu velocidad vertical y te da un salto
                     rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
                 }
             }
-        }
-    }
-    private IEnumerator ShowAttackEffect()
-    {
-        // Elige qué efecto mostrar (lateral o abajo)
-        GameObject effectToShow = isAttackingDown ? downAttackEffect : sideAttackEffect;
-
-        if (effectToShow != null)
-        {
-            // 1. Lo activa
-            effectToShow.SetActive(true);
-
-            // 2. Espera 0.1 segundos
-            yield return new WaitForSeconds(0.1f);
-
-            // 3. Lo desactiva
-            effectToShow.SetActive(false);
         }
     }
     void OnDrawGizmos()
