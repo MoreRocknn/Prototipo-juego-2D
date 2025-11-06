@@ -19,8 +19,8 @@ public class MainChar : MonoBehaviour
     [Header("Pared y salto")]
     public float wallSlideSpeed = 2.5f;
     public Vector2 wallJumpForce = new Vector2(13f, 17f);
-    public float wallJumpLockTime = 0.15f; // Control bloqueado tras wall jump
-    public float wallJumpControlTime = 0.25f; // Tiempo hasta recuperar control total
+    public float wallJumpLockTime = 0.15f;
+    public float wallJumpControlTime = 0.25f;
     private float wallJumpCounter = 0f;
     private bool wasWallJumping = false;
 
@@ -42,27 +42,42 @@ public class MainChar : MonoBehaviour
     private bool isAttackingDown = false;
 
     [Header("Gravedad / Saltos tipo Hollow Knight")]
-    public float fallGravityMultiplier = 2.8f; // HK usa ~2.5-3
+    public float fallGravityMultiplier = 2.8f;
     public float lowJumpMultiplier = 2f;
-    public float wallSlideGravityMultiplier = 0.3f; // Muy pegado a la pared
-    public float coyoteTime = 0.1f; // HK usa ~0.1
+    public float wallSlideGravityMultiplier = 0.3f;
+    public float coyoteTime = 0.1f;
     public float jumpBufferTime = 0.1f;
 
     [Header("Afinación adicional")]
-    public float jumpCutMultiplier = 0.5f; // HK corta el salto a la mitad
-    public float airControlMultiplier = 1f; // HK tiene control total en el aire
+    public float jumpCutMultiplier = 0.5f;
+    public float airControlMultiplier = 1f;
     public float maxFallSpeed = 22f;
-    public float wallJumpAirDrag = 0.92f; // Freno suave tras wall jump
+    public float wallJumpAirDrag = 0.92f;
+
+    [Header("=== SISTEMA DE VIDA ===")]
+    public int maxHealth = 3;
+    public int currentHealth = 3;
+    public float damageInvincibilityTime = 1f;
+    public Vector2 damageKnockbackForce = new Vector2(5f, 5f);
+    public Color damageColor = new Color(1f, 0.3f, 0.3f);
+    private bool isDamageInvincible = false;
 
     private float defaultGravityScale;
     private float coyoteTimeCounter;
     private float jumpBufferCounter;
-    private bool jumpReleased = true; // Evita saltos automáticos
+    private bool jumpReleased = true;
 
     void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         defaultGravityScale = rb.gravityScale;
+
+        currentHealth = maxHealth;
+
+        if (GameManager.Instance != null && GameManager.Instance.hasCheckpoint)
+        {
+            transform.position = GameManager.Instance.GetRespawnPosition();
+        }
     }
 
     void Update()
@@ -70,7 +85,6 @@ public class MainChar : MonoBehaviour
         moveInput = Input.GetAxisRaw("Horizontal");
         float verticalInput = Input.GetAxisRaw("Vertical");
 
-        // --- INPUT DE SALTO: jump buffering ---
         if (Input.GetButtonDown("Jump"))
         {
             jumpBufferCounter = jumpBufferTime;
@@ -81,19 +95,16 @@ public class MainChar : MonoBehaviour
             jumpBufferCounter -= Time.deltaTime;
         }
 
-        // Detectar cuando se suelta el salto
         if (Input.GetButtonUp("Jump"))
         {
             jumpReleased = true;
 
-            // Jump cut más agresivo (estilo HK)
             if (rb.linearVelocity.y > 0f)
             {
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y * jumpCutMultiplier);
             }
         }
 
-        // --- LÓGICA DE ATAQUE ---
         isAttackingDown = false;
         if (Input.GetButtonDown("Fire1"))
         {
@@ -104,20 +115,16 @@ public class MainChar : MonoBehaviour
             Attack();
         }
 
-        // --- GRAVEDAD VARIABLE (HOLLOW KNIGHT STYLE) ---
         if (isWallSliding)
         {
-            // Gravedad muy baja en wall slide (se siente pegajoso)
             rb.gravityScale = defaultGravityScale * wallSlideGravityMultiplier;
         }
-        else if (rb.linearVelocity.y < -0.1f) // Cayendo
+        else if (rb.linearVelocity.y < -0.1f)
         {
-            // Caída rápida característica de HK
             rb.gravityScale = defaultGravityScale * fallGravityMultiplier;
         }
-        else if (rb.linearVelocity.y > 0.1f && !Input.GetButton("Jump")) // Subiendo pero soltó botón
+        else if (rb.linearVelocity.y > 0.1f && !Input.GetButton("Jump"))
         {
-            // Corte de salto (hace que sientas más control)
             rb.gravityScale = defaultGravityScale * lowJumpMultiplier;
         }
         else
@@ -125,17 +132,14 @@ public class MainChar : MonoBehaviour
             rb.gravityScale = defaultGravityScale;
         }
 
-        // --- CHEQUEOS DE ENTORNO ---
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, checkRadius, groundLayer);
         isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, checkRadius, wallLayer);
 
-        // Resetear flag de wall jump cuando tocas el suelo
         if (isGrounded)
         {
             wasWallJumping = false;
         }
 
-        // --- LÓGICA DE COYOTE TIME ---
         if (isGrounded)
         {
             coyoteTimeCounter = coyoteTime;
@@ -145,27 +149,23 @@ public class MainChar : MonoBehaviour
             coyoteTimeCounter -= Time.deltaTime;
         }
 
-        // Decrementar wall jump counter
         if (wallJumpCounter > 0f)
         {
             wallJumpCounter -= Time.deltaTime;
         }
 
-        // --- LÓGICA DE WALL SLIDE ---
         bool isPushingWall = (moveInput * wallSide > 0);
 
         if (isTouchingWall && !isGrounded && rb.linearVelocity.y < 0f && isPushingWall)
         {
-            if (verticalInput < 0) // Si pulsa "Abajo" (fast fall)
+            if (verticalInput < 0)
             {
                 isWallSliding = false;
-                // Caída rápida
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y);
             }
             else
             {
                 isWallSliding = true;
-                // Deslizamiento suave
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, -wallSlideSpeed);
             }
         }
@@ -174,9 +174,7 @@ public class MainChar : MonoBehaviour
             isWallSliding = false;
         }
 
-        // --- LÓGICA DE GIRO (FLIP) ---
-        // Permitir flip más libre, pero con delay mínimo tras wall jump
-        if (wallJumpCounter <= 0.05f) // Solo 0.05s de bloqueo
+        if (wallJumpCounter <= 0.05f)
         {
             if (moveInput < 0 && isFacingRight)
             {
@@ -191,20 +189,16 @@ public class MainChar : MonoBehaviour
 
     void FixedUpdate()
     {
-        // Control de movimiento con wall jump
         if (wallJumpCounter > 0f)
         {
-            // Durante wall jump, aplicar resistencia progresiva
             float controlAmount = 1f - (wallJumpCounter / wallJumpLockTime);
 
             if (wallJumpCounter > wallJumpLockTime)
             {
-                // Bloqueo total inicial
                 return;
             }
             else
             {
-                // Recuperación gradual del control
                 float targetX = moveInput * moveSpeed * controlAmount;
                 rb.linearVelocity = new Vector2(
                     Mathf.Lerp(rb.linearVelocity.x, targetX, wallJumpAirDrag),
@@ -214,28 +208,23 @@ public class MainChar : MonoBehaviour
         }
         else if (!isWallSliding)
         {
-            // Control normal
             float targetX = moveInput * moveSpeed;
             float appliedX = isGrounded ? targetX : targetX * airControlMultiplier;
             rb.linearVelocity = new Vector2(appliedX, rb.linearVelocity.y);
         }
 
-        // --- LÓGICA DE SALTO ---
         if (jumpBufferCounter > 0f && jumpReleased == false)
         {
-            // WALL JUMP
             if (isTouchingWall && !isGrounded && wallJumpCounter <= 0f)
             {
                 bool isPushingTowardsWall = (moveInput * wallSide > 0);
 
                 if (isPushingTowardsWall || Mathf.Abs(moveInput) < 0.1f)
                 {
-                    // Salto neutro o hacia la pared (más vertical)
                     rb.linearVelocity = new Vector2(-wallSide * wallJumpForce.x * 0.7f, wallJumpForce.y);
                 }
                 else
                 {
-                    // Salto alejándose de la pared (más horizontal)
                     rb.linearVelocity = new Vector2(-wallSide * wallJumpForce.x, wallJumpForce.y * 0.95f);
                 }
 
@@ -245,7 +234,6 @@ public class MainChar : MonoBehaviour
                 coyoteTimeCounter = 0f;
                 isWallSliding = false;
             }
-            // SALTO NORMAL
             else if (coyoteTimeCounter > 0f && !wasWallJumping)
             {
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
@@ -254,12 +242,10 @@ public class MainChar : MonoBehaviour
             }
             else
             {
-                // Si no se puede saltar, resetear buffer más rápido
                 jumpBufferCounter = 0f;
             }
         }
 
-        // Limitar velocidad de caída (como HK)
         if (rb.linearVelocity.y < -maxFallSpeed)
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, -maxFallSpeed);
@@ -273,6 +259,116 @@ public class MainChar : MonoBehaviour
         Vector3 scaler = transform.localScale;
         scaler.x *= -1;
         transform.localScale = scaler;
+    }
+
+    public void TakeDamage(int damage)
+    {
+        if (isDamageInvincible)
+        {
+            Debug.Log("Jugador invencible, daño ignorado");
+            return;
+        }
+
+        currentHealth -= damage;
+        Debug.Log($"Jugador recibió {damage} de daño. Vida: {currentHealth}/{maxHealth}");
+
+        GameObject[] enemies = GameObject.FindGameObjectsWithTag("Enemy");
+        float knockbackDir = 1f;
+
+        if (enemies.Length > 0)
+        {
+            float closestDist = Mathf.Infinity;
+            GameObject closestEnemy = null;
+
+            foreach (GameObject enemy in enemies)
+            {
+                float dist = Vector2.Distance(transform.position, enemy.transform.position);
+                if (dist < closestDist)
+                {
+                    closestDist = dist;
+                    closestEnemy = enemy;
+                }
+            }
+
+            if (closestEnemy != null)
+            {
+                knockbackDir = transform.position.x > closestEnemy.transform.position.x ? 1f : -1f;
+            }
+        }
+
+        if (rb != null)
+        {
+            rb.linearVelocity = Vector2.zero;
+            rb.linearVelocity = new Vector2(knockbackDir * damageKnockbackForce.x, damageKnockbackForce.y);
+        }
+
+        if (currentHealth <= 0)
+        {
+            Die();
+        }
+        else
+        {
+            StartCoroutine(DamageInvincibility());
+        }
+    }
+
+    IEnumerator DamageInvincibility()
+    {
+        isDamageInvincible = true;
+        SpriteRenderer sr = GetComponent<SpriteRenderer>();
+        Color originalColor = sr != null ? sr.color : Color.white;
+
+        float flashInterval = damageInvincibilityTime / 10f;
+        for (int i = 0; i < 5; i++)
+        {
+            if (sr != null) sr.color = damageColor;
+            yield return new WaitForSeconds(flashInterval);
+            if (sr != null) sr.color = originalColor;
+            yield return new WaitForSeconds(flashInterval);
+        }
+
+        isDamageInvincible = false;
+        Debug.Log("Invencibilidad terminada");
+    }
+
+    void Die()
+    {
+        Debug.Log("¡Jugador murió!");
+
+        if (GameManager.Instance != null)
+        {
+            StartCoroutine(RespawnAfterDeath());
+        }
+        else
+        {
+            UnityEngine.SceneManagement.SceneManager.LoadScene(
+                UnityEngine.SceneManagement.SceneManager.GetActiveScene().name
+            );
+        }
+    }
+
+    IEnumerator RespawnAfterDeath()
+    {
+        enabled = false;
+
+        SpriteRenderer sr = GetComponent<SpriteRenderer>();
+        if (sr != null) sr.enabled = false;
+
+        yield return new WaitForSeconds(1f);
+
+        currentHealth = maxHealth;
+
+        if (GameManager.Instance != null)
+        {
+            transform.position = GameManager.Instance.GetRespawnPosition();
+        }
+
+        if (sr != null) sr.enabled = true;
+        rb.linearVelocity = Vector2.zero;
+        isDamageInvincible = false;
+        enabled = true;
+
+        Debug.Log("Jugador respawneado");
     }
 
     void Attack()
@@ -307,7 +403,6 @@ public class MainChar : MonoBehaviour
 
                 if (isAttackingDown)
                 {
-                    // Pogo jump (característico de HK)
                     rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
                 }
             }
