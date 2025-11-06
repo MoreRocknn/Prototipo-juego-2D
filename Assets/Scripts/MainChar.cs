@@ -17,8 +17,12 @@ public class MainChar : MonoBehaviour
     public LayerMask wallLayer;
 
     [Header("Pared y salto")]
-    public float wallSlideSpeed = 1.5f;
-    public Vector2 wallJumpForce = new Vector2(10f, 14f);
+    public float wallSlideSpeed = 2.5f;
+    public Vector2 wallJumpForce = new Vector2(13f, 17f);
+    public float wallJumpLockTime = 0.15f; // Control bloqueado tras wall jump
+    public float wallJumpControlTime = 0.25f; // Tiempo hasta recuperar control total
+    private float wallJumpCounter = 0f;
+    private bool wasWallJumping = false;
 
     private bool isGrounded;
     private bool isTouchingWall;
@@ -38,19 +42,22 @@ public class MainChar : MonoBehaviour
     private bool isAttackingDown = false;
 
     [Header("Gravedad / Saltos tipo Hollow Knight")]
-    public float fallGravityMultiplier = 3.5f;
-    public float lowJumpMultiplier = 2.2f;
-    public float coyoteTime = 0.15f;
-    public float jumpBufferTime = 0.12f;
+    public float fallGravityMultiplier = 2.8f; // HK usa ~2.5-3
+    public float lowJumpMultiplier = 2f;
+    public float wallSlideGravityMultiplier = 0.3f; // Muy pegado a la pared
+    public float coyoteTime = 0.1f; // HK usa ~0.1
+    public float jumpBufferTime = 0.1f;
 
     [Header("Afinación adicional")]
-    public float jumpCutMultiplier = 0.85f;
-    public float airControlMultiplier = 0.92f;
-    public float maxFallSpeed = 25f;
+    public float jumpCutMultiplier = 0.5f; // HK corta el salto a la mitad
+    public float airControlMultiplier = 1f; // HK tiene control total en el aire
+    public float maxFallSpeed = 22f;
+    public float wallJumpAirDrag = 0.92f; // Freno suave tras wall jump
 
     private float defaultGravityScale;
     private float coyoteTimeCounter;
     private float jumpBufferCounter;
+    private bool jumpReleased = true; // Evita saltos automáticos
 
     void Start()
     {
@@ -67,15 +74,19 @@ public class MainChar : MonoBehaviour
         if (Input.GetButtonDown("Jump"))
         {
             jumpBufferCounter = jumpBufferTime;
+            jumpReleased = false;
         }
         else
         {
-            jumpBufferCounter -= Time.deltaTime; // Decrementar buffer si no se pulsa
+            jumpBufferCounter -= Time.deltaTime;
         }
 
-        // Si sueltas el botón de salto, aplicamos un "jump cut"
+        // Detectar cuando se suelta el salto
         if (Input.GetButtonUp("Jump"))
         {
+            jumpReleased = true;
+
+            // Jump cut más agresivo (estilo HK)
             if (rb.linearVelocity.y > 0f)
             {
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y * jumpCutMultiplier);
@@ -93,17 +104,23 @@ public class MainChar : MonoBehaviour
             Attack();
         }
 
-        // --- GRAVEDAD VARIABLE (HOLLOW KNIGHT) ---
-        // ¡¡ARREGLO 1!! Aplicar gravedad extra SOLO si estamos cayendo Y NO estamos tocando una pared
-        if (rb.linearVelocity.y < 0f && !isTouchingWall)
+        // --- GRAVEDAD VARIABLE (HOLLOW KNIGHT STYLE) ---
+        if (isWallSliding)
         {
+            // Gravedad muy baja en wall slide (se siente pegajoso)
+            rb.gravityScale = defaultGravityScale * wallSlideGravityMultiplier;
+        }
+        else if (rb.linearVelocity.y < -0.1f) // Cayendo
+        {
+            // Caída rápida característica de HK
             rb.gravityScale = defaultGravityScale * fallGravityMultiplier;
         }
-        else if (rb.linearVelocity.y > 0f && !Input.GetButton("Jump")) // Está subiendo pero soltó el botón
+        else if (rb.linearVelocity.y > 0.1f && !Input.GetButton("Jump")) // Subiendo pero soltó botón
         {
+            // Corte de salto (hace que sientas más control)
             rb.gravityScale = defaultGravityScale * lowJumpMultiplier;
         }
-        else // Está subiendo y manteniendo el botón, o está quieto
+        else
         {
             rb.gravityScale = defaultGravityScale;
         }
@@ -111,6 +128,12 @@ public class MainChar : MonoBehaviour
         // --- CHEQUEOS DE ENTORNO ---
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, checkRadius, groundLayer);
         isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, checkRadius, wallLayer);
+
+        // Resetear flag de wall jump cuando tocas el suelo
+        if (isGrounded)
+        {
+            wasWallJumping = false;
+        }
 
         // --- LÓGICA DE COYOTE TIME ---
         if (isGrounded)
@@ -122,18 +145,27 @@ public class MainChar : MonoBehaviour
             coyoteTimeCounter -= Time.deltaTime;
         }
 
+        // Decrementar wall jump counter
+        if (wallJumpCounter > 0f)
+        {
+            wallJumpCounter -= Time.deltaTime;
+        }
+
         // --- LÓGICA DE WALL SLIDE ---
         bool isPushingWall = (moveInput * wallSide > 0);
 
         if (isTouchingWall && !isGrounded && rb.linearVelocity.y < 0f && isPushingWall)
         {
-            if (verticalInput < 0) // Si pulsa "Abajo"
+            if (verticalInput < 0) // Si pulsa "Abajo" (fast fall)
             {
-                isWallSliding = false; // Nos soltamos
+                isWallSliding = false;
+                // Caída rápida
+                rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y);
             }
-            else // Si no pulsa abajo Y está pulsando hacia la pared
+            else
             {
                 isWallSliding = true;
+                // Deslizamiento suave
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, -wallSlideSpeed);
             }
         }
@@ -143,53 +175,91 @@ public class MainChar : MonoBehaviour
         }
 
         // --- LÓGICA DE GIRO (FLIP) ---
-        if (moveInput < 0 && isFacingRight)
+        // Permitir flip más libre, pero con delay mínimo tras wall jump
+        if (wallJumpCounter <= 0.05f) // Solo 0.05s de bloqueo
         {
-            Flip();
-        }
-        else if (moveInput > 0 && !isFacingRight)
-        {
-            Flip();
+            if (moveInput < 0 && isFacingRight)
+            {
+                Flip();
+            }
+            else if (moveInput > 0 && !isFacingRight)
+            {
+                Flip();
+            }
         }
     }
 
     void FixedUpdate()
     {
-        if (!isWallSliding)
+        // Control de movimiento con wall jump
+        if (wallJumpCounter > 0f)
         {
+            // Durante wall jump, aplicar resistencia progresiva
+            float controlAmount = 1f - (wallJumpCounter / wallJumpLockTime);
+
+            if (wallJumpCounter > wallJumpLockTime)
+            {
+                // Bloqueo total inicial
+                return;
+            }
+            else
+            {
+                // Recuperación gradual del control
+                float targetX = moveInput * moveSpeed * controlAmount;
+                rb.linearVelocity = new Vector2(
+                    Mathf.Lerp(rb.linearVelocity.x, targetX, wallJumpAirDrag),
+                    rb.linearVelocity.y
+                );
+            }
+        }
+        else if (!isWallSliding)
+        {
+            // Control normal
             float targetX = moveInput * moveSpeed;
             float appliedX = isGrounded ? targetX : targetX * airControlMultiplier;
             rb.linearVelocity = new Vector2(appliedX, rb.linearVelocity.y);
         }
 
-        if (jumpBufferCounter > 0f)
+        // --- LÓGICA DE SALTO ---
+        if (jumpBufferCounter > 0f && jumpReleased == false)
         {
-            if (isTouchingWall && !isGrounded)
+            // WALL JUMP
+            if (isTouchingWall && !isGrounded && wallJumpCounter <= 0f)
             {
-                bool isClimbing = (moveInput * wallSide > 0);
+                bool isPushingTowardsWall = (moveInput * wallSide > 0);
 
-                if (isClimbing)
+                if (isPushingTowardsWall || Mathf.Abs(moveInput) < 0.1f)
                 {
-                    rb.linearVelocity = new Vector2(-wallSide * (wallJumpForce.x * 0.4f), wallJumpForce.y);
+                    // Salto neutro o hacia la pared (más vertical)
+                    rb.linearVelocity = new Vector2(-wallSide * wallJumpForce.x * 0.7f, wallJumpForce.y);
                 }
                 else
                 {
-                    rb.linearVelocity = new Vector2(-wallSide * wallJumpForce.x, wallJumpForce.y);
+                    // Salto alejándose de la pared (más horizontal)
+                    rb.linearVelocity = new Vector2(-wallSide * wallJumpForce.x, wallJumpForce.y * 0.95f);
                 }
 
+                wallJumpCounter = wallJumpControlTime;
+                wasWallJumping = true;
                 jumpBufferCounter = 0f;
                 coyoteTimeCounter = 0f;
-                isWallSliding = false; 
+                isWallSliding = false;
             }
-            else if (coyoteTimeCounter > 0f)
+            // SALTO NORMAL
+            else if (coyoteTimeCounter > 0f && !wasWallJumping)
             {
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
-
                 jumpBufferCounter = 0f;
                 coyoteTimeCounter = 0f;
+            }
+            else
+            {
+                // Si no se puede saltar, resetear buffer más rápido
+                jumpBufferCounter = 0f;
             }
         }
 
+        // Limitar velocidad de caída (como HK)
         if (rb.linearVelocity.y < -maxFallSpeed)
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, -maxFallSpeed);
@@ -229,17 +299,17 @@ public class MainChar : MonoBehaviour
 
         foreach (Collider2D enemyCollider in hitEnemies)
         {
-            //Debes cambiar "Enemigo" por el nombre de tu script de enemigo
-            Enemigo enemy = enemyCollider.GetComponent<Enemigo>(); 
+            Enemigo enemy = enemyCollider.GetComponent<Enemigo>();
             if (enemy != null)
-             {
+            {
                 int enemyKnockbackDir = isFacingRight ? 1 : -1;
                 enemy.TakeDamage(attackDamage, enemyKnockbackDir);
 
-               if (isAttackingDown)
-              {
-                   rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
-               }
+                if (isAttackingDown)
+                {
+                    // Pogo jump (característico de HK)
+                    rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
+                }
             }
         }
     }
