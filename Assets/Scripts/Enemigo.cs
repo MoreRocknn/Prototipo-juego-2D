@@ -9,6 +9,10 @@ public class Enemigo : MonoBehaviour
     private bool isInvincible = false;
     public Vector2 knockbackForce = new Vector2(3f, 5f);
 
+    [Header("=== PROTECCIÓN ANTI-VUELO ===")]
+    public float knockbackInvincibilityTime = 0.3f; // Invencibilidad tras recibir hit
+    private bool isKnockbackInvincible = false;     // Evita que el jugador abuse del knockback
+
     [Header("=== DETECCIÓN ===")]
     public float detectionRange = 8f;
     public float attackRange = 2f;
@@ -111,7 +115,6 @@ public class Enemigo : MonoBehaviour
 
         attackTimer -= Time.deltaTime;
 
-        // ... al inicio de Update() ...
         Vector3 detectionPos = detectionPoint != null ? detectionPoint.position : transform.position;
         float distanceToPlayer = player != null ? Vector2.Distance(detectionPos, player.position) : Mathf.Infinity;
         bool playerDetected = distanceToPlayer <= detectionRange;
@@ -177,7 +180,6 @@ public class Enemigo : MonoBehaviour
         float direction = movingRight ? 1f : -1f;
         rb.linearVelocity = new Vector2(direction * moveSpeed, rb.linearVelocity.y);
 
-        // Voltear según dirección de patrulla
         if (movingRight && !isFacingRight)
         {
             Flip();
@@ -246,16 +248,15 @@ public class Enemigo : MonoBehaviour
         LookAtPlayer();
         if (inAttackRange)
         {
-            if (attackTimer <= 0) // ¡Puede atacar!
+            if (attackTimer <= 0)
             {
-                EnterAttackState(); // Ataca directamente
+                EnterAttackState();
             }
-            else // Aún en cooldown
+            else
             {
-                EnterGuardState(); // Espera en modo guardia
+                EnterGuardState();
             }
         }
-
     }
 
     void HandleAttack()
@@ -320,7 +321,6 @@ public class Enemigo : MonoBehaviour
             Destroy(effect, 1f);
         }
 
-        // DETECTAR Y DAÑAR AL JUGADOR
         Collider2D[] hits = Physics2D.OverlapCircleAll(attackPoint.position, attackRadius, PlayerLayer);
 
         foreach (Collider2D hit in hits)
@@ -377,8 +377,12 @@ public class Enemigo : MonoBehaviour
 
     public void TakeDamage(int damage, float knockbackDirection)
     {
-        if (isInvincible)
+        // ============================================
+        // ARREGLADO: Protección anti-vuelo
+        // ============================================
+        if (isInvincible || isKnockbackInvincible)
         {
+            Debug.Log($"{gameObject.name}: Invencible - Hit ignorado");
             return;
         }
 
@@ -402,6 +406,7 @@ public class Enemigo : MonoBehaviour
         else
         {
             StartCoroutine(InvincibilityFrames());
+            StartCoroutine(KnockbackInvincibility()); // NUEVO: Evita spam de hits
         }
     }
 
@@ -428,6 +433,20 @@ public class Enemigo : MonoBehaviour
         currentState = EnemyState.Idle;
     }
 
+    // ============================================
+    // NUEVO: Invencibilidad temporal al knockback
+    // ============================================
+    private IEnumerator KnockbackInvincibility()
+    {
+        isKnockbackInvincible = true;
+        Debug.Log($"{gameObject.name}: Knockback invincibility activada");
+
+        yield return new WaitForSeconds(knockbackInvincibilityTime);
+
+        isKnockbackInvincible = false;
+        Debug.Log($"{gameObject.name}: Knockback invincibility terminada");
+    }
+
     void UpdateAnimations()
     {
         if (animator != null)
@@ -444,22 +463,18 @@ public class Enemigo : MonoBehaviour
 
         Vector3 detectionPos = detectionPoint != null ? detectionPoint.position : transform.position;
 
-        // Rango de detección
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(detectionPos, detectionRange);
 
-        // Rango de ataque
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(detectionPos, attackRange);
 
-        // Punto de ataque
         if (attackPoint != null)
         {
             Gizmos.color = Color.magenta;
             Gizmos.DrawWireSphere(attackPoint.position, attackRadius);
         }
 
-        // Patrulla
         if (shouldPatrol && Application.isPlaying)
         {
             Gizmos.color = Color.green;

@@ -227,6 +227,7 @@ MonoBehaviour:
   health: 5
   invincibilityTime: 0.5
   knockbackForce: {x: 3, y: 5}
+  knockbackInvincibilityTime: 0.3
   detectionRange: 7
   attackRange: 0.9
   PlayerLayer:
@@ -2073,7 +2074,7 @@ Rigidbody2D:
   m_LinearDamping: 0
   m_AngularDamping: 0
   m_GravityScale: 3
-  m_Material: {fileID: 0}
+  m_Material: {fileID: 6200000, guid: 2dfe3175fb2f7424dadc7319a8b34a3d, type: 2}
   m_IncludeLayers:
     serializedVersion: 2
     m_Bits: 0
@@ -2231,6 +2232,9 @@ MonoBehaviour:
   wallJumpForce: {x: 12, y: 12}
   wallJumpLockTime: 0.15
   wallJumpControlTime: 0.25
+  canWallGrab: 1
+  wallGrabKey: 308
+  wallGrabStaminaMax: 3
   attackPoint: {fileID: 251638998}
   attackRange: 0.5
   enemyLayer:
@@ -2252,8 +2256,8 @@ MonoBehaviour:
   wallJumpAirDrag: 0.92
   downAttackBounceForce: 23
   downAttackSmallBounceForce: 17
-  pogoJumpForce: 23
-  pogoWindow: 0.2
+  maxConsecutiveBounces: 3
+  bounceResetTime: 0.5
   maxHealth: 6
   currentHealth: 6
   damageInvincibilityTime: 1

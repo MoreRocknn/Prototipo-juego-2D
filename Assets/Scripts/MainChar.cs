@@ -24,6 +24,13 @@ public class MainChar : MonoBehaviour
     private float wallJumpCounter = 0f;
     private bool wasWallJumping = false;
 
+    [Header("Wall Grab (Clic Derecho)")]
+    public bool canWallGrab = true;
+    public KeyCode wallGrabKey = KeyCode.LeftShift;  // Cambiar a Shift por defecto
+    public float wallGrabStaminaMax = 3f;
+    private float wallGrabStamina;
+    private bool isWallGrabbing = false;
+
     private bool isGrounded;
     private bool isTouchingWall;
     private bool isWallSliding;
@@ -42,11 +49,11 @@ public class MainChar : MonoBehaviour
     private bool isAttackingDown = false;
 
     [Header("Gravedad / Saltos tipo Hollow Knight")]
-    public float fallGravityMultiplier = 2.5f;  // Ajustado para caída más rápida
-    public float lowJumpMultiplier = 2.5f;      // Ajustado para mejor control
-    public float wallSlideGravityMultiplier = 0.3f; // (Ya no se usa para gravedad, pero se mantiene)
-    public float coyoteTime = 0.12f;            // Más generoso como en HK
-    public float jumpBufferTime = 0.15f;        // Más generoso como en HK
+    public float fallGravityMultiplier = 2.5f;
+    public float lowJumpMultiplier = 2.5f;
+    public float wallSlideGravityMultiplier = 0.3f;
+    public float coyoteTime = 0.12f;
+    public float jumpBufferTime = 0.15f;
 
     [Header("Afinación adicional")]
     public float jumpCutMultiplier = 0.5f;
@@ -55,15 +62,14 @@ public class MainChar : MonoBehaviour
     public float wallJumpAirDrag = 0.92f;
 
     [Header("=== DOWN ATTACK BOUNCE (Hollow Knight) ===")]
-    public float downAttackBounceForce = 25f;       // Rebote automático al pegar hacia abajo
-    public float downAttackSmallBounceForce = 12f;  // Rebote pequeño (no usado por ahora)
-    private bool holdingJumpOnDownAttack = false;   // Control del rebote
+    public float downAttackBounceForce = 25f;
+    public float downAttackSmallBounceForce = 12f;
 
-    [Header("=== POGO STICK (Saltos consecutivos al suelo) ===")]
-    public float pogoJumpForce = 14f;               // Fuerza del pogo jump (AHORA NO SE USA)
-    public float pogoWindow = 0.2f;                 // Ventana de tiempo para hacer pogo
-    private float lastDownAttackTime = -1f;         // Tiempo del último down attack
-    private bool canPogoJump = false;               // Si puede hacer pogo jump
+    [Header("=== LÍMITE DE REBOTES CONSECUTIVOS ===")]
+    public int maxConsecutiveBounces = 3;
+    public float bounceResetTime = 0.5f;
+    private int consecutiveBounces = 0;
+    private float lastBounceTime = -1f;
 
     [Header("=== SISTEMA DE VIDA ===")]
     public int maxHealth = 3;
@@ -83,7 +89,11 @@ public class MainChar : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         defaultGravityScale = rb.gravityScale;
 
+        rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
+        rb.interpolation = RigidbodyInterpolation2D.Interpolate;
+
         currentHealth = maxHealth;
+        wallGrabStamina = wallGrabStaminaMax;
 
         if (GameManager.Instance != null && GameManager.Instance.hasCheckpoint)
         {
@@ -96,28 +106,10 @@ public class MainChar : MonoBehaviour
         moveInput = Input.GetAxisRaw("Horizontal");
         float verticalInput = Input.GetAxisRaw("Vertical");
 
-        // Sistema de salto con buffer
         if (Input.GetButtonDown("Jump"))
         {
             jumpBufferCounter = jumpBufferTime;
             jumpReleased = false;
-            holdingJumpOnDownAttack = true;
-
-            // POGO JUMP: Si acabas de hacer down attack y tocas Jump rápido
-            // ===================================================================
-            // ===          CAMBIO 1: BLOQUE DE POGO JUMP COMENTADO          ===
-            // === Esto evita el rebote exagerado al pulsar Jump y Attack    ===
-            // ===================================================================
-            /*
-            if (canPogoJump && Time.time - lastDownAttackTime < pogoWindow)
-            {
-                rb.linearVelocity = new Vector2(rb.linearVelocity.x, pogoJumpForce);
-                canPogoJump = false;
-                Debug.Log("¡Pogo Jump!");
-            }
-            */
-            // ===================================================================
-
         }
         else
         {
@@ -127,42 +119,37 @@ public class MainChar : MonoBehaviour
         if (Input.GetButtonUp("Jump"))
         {
             jumpReleased = true;
-            holdingJumpOnDownAttack = false;
 
-            // Jump cut más agresivo (como Hollow Knight)
             if (rb.linearVelocity.y > 0f)
             {
                 rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y * jumpCutMultiplier);
             }
         }
 
-        // Sistema de ataque
         isAttackingDown = false;
         if (Input.GetButtonDown("Fire1"))
         {
             if (verticalInput < 0 && !isGrounded)
             {
                 isAttackingDown = true;
-                lastDownAttackTime = Time.time;
-                canPogoJump = true;  // Habilita pogo jump después del down attack
             }
             Attack();
         }
 
-        // ===================================================================
-        // ===       CAMBIO 2.A: MODIFICACIÓN GRAVEDAD WALLSLIDE         ===
-        // ===================================================================
-        // Sistema de gravedad mejorado (como Hollow Knight)
-        if (isWallSliding)
+        // Sistema de gravedad con Wall Grab
+        if (isWallGrabbing)
         {
-            //rb.gravityScale = defaultGravityScale * wallSlideGravityMultiplier; // <- Original
-            rb.gravityScale = 0f; // <--- AHORA ES CERO para evitar conflictos
+            rb.gravityScale = 0f;
         }
-        else if (rb.linearVelocity.y < -0.5f)  // Cayendo
+        else if (isWallSliding)
+        {
+            rb.gravityScale = defaultGravityScale * wallSlideGravityMultiplier;
+        }
+        else if (rb.linearVelocity.y < -0.5f)
         {
             rb.gravityScale = defaultGravityScale * fallGravityMultiplier;
         }
-        else if (rb.linearVelocity.y > 0.5f && !Input.GetButton("Jump"))  // Subiendo sin mantener salto
+        else if (rb.linearVelocity.y > 0.5f && !Input.GetButton("Jump"))
         {
             rb.gravityScale = defaultGravityScale * lowJumpMultiplier;
         }
@@ -170,17 +157,15 @@ public class MainChar : MonoBehaviour
         {
             rb.gravityScale = defaultGravityScale;
         }
-        // ===================================================================
 
-
-        // Detección de suelo y pared
         isGrounded = Physics2D.OverlapCircle(groundCheck.position, checkRadius, groundLayer);
         isTouchingWall = Physics2D.OverlapCircle(wallCheck.position, checkRadius, wallLayer);
 
         if (isGrounded)
         {
             wasWallJumping = false;
-            canPogoJump = false;  // Reset pogo al tocar suelo normalmente
+            consecutiveBounces = 0;
+            wallGrabStamina = wallGrabStaminaMax;
         }
 
         // Coyote time
@@ -198,34 +183,48 @@ public class MainChar : MonoBehaviour
             wallJumpCounter -= Time.deltaTime;
         }
 
-
-        // ===================================================================
-        // ===     CAMBIO 2.B: MODIFICACIÓN DETECCIÓN WALLSLIDE          ===
-        // ===================================================================
-        // Wall slide
+        // Wall Grab y Wall Slide
         bool isPushingWall = (moveInput * wallSide > 0);
+        bool wantsToGrab = canWallGrab && Input.GetMouseButton(1);
 
-        if (isTouchingWall && !isGrounded && rb.linearVelocity.y < 0f && isPushingWall)
+        if (isTouchingWall && !isGrounded && isPushingWall && wantsToGrab)
         {
+            isWallGrabbing = true;
+            isWallSliding = false;
+
+            if (wallGrabStaminaMax > 0)
+            {
+                wallGrabStamina -= Time.deltaTime;
+                if (wallGrabStamina <= 0)
+                {
+                    isWallGrabbing = false;
+                }
+            }
+        }
+        else if (isTouchingWall && !isGrounded && rb.linearVelocity.y < 0f && isPushingWall)
+        {
+            isWallGrabbing = false;
+
             if (verticalInput < 0)
             {
                 isWallSliding = false;
-                rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y);
             }
             else
             {
                 isWallSliding = true;
-                // rb.linearVelocity = new Vector2(rb.linearVelocity.x, -wallSlideSpeed); // <-- SE QUITA ESTO
             }
         }
         else
         {
+            isWallGrabbing = false;
             isWallSliding = false;
         }
-        // ===================================================================
 
+        if (Time.time - lastBounceTime > bounceResetTime && !isGrounded)
+        {
+            consecutiveBounces = 0;
+        }
 
-        // Flip del personaje
         if (wallJumpCounter <= 0.05f)
         {
             if (moveInput < 0 && isFacingRight)
@@ -241,11 +240,17 @@ public class MainChar : MonoBehaviour
 
     void FixedUpdate()
     {
-        // ===================================================================
-        // ===       CAMBIO 2.C: LÓGICA DE MOVIMIENTO EN FIXEDUPDATE     ===
-        // ===================================================================
+        if (isWallGrabbing)
+        {
+            rb.linearVelocity = Vector2.zero;
+            return;
+        }
 
-        // Control durante wall jump
+        if (isWallSliding)
+        {
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, Mathf.Max(rb.linearVelocity.y, -wallSlideSpeed));
+        }
+
         if (wallJumpCounter > 0f)
         {
             float controlAmount = 1f - (wallJumpCounter / wallJumpLockTime);
@@ -263,25 +268,13 @@ public class MainChar : MonoBehaviour
                 );
             }
         }
-        // --- INICIO DEL BLOQUE AÑADIDO ---
-        // Si estamos deslizando, aplicamos velocidad de deslizamiento
-        else if (isWallSliding)
-        {
-            rb.linearVelocity = new Vector2(0f, -wallSlideSpeed);
-        }
-        // --- FIN DEL BLOQUE AÑADIDO ---
-
-        // Si no (antes era "else if (!isWallSliding)")
-        else
+        else if (!isWallSliding)
         {
             float targetX = moveInput * moveSpeed;
             float appliedX = isGrounded ? targetX : targetX * airControlMultiplier;
             rb.linearVelocity = new Vector2(appliedX, rb.linearVelocity.y);
         }
-        // ===================================================================
 
-
-        // Sistema de salto con buffer
         if (jumpBufferCounter > 0f && jumpReleased == false)
         {
             if (isTouchingWall && !isGrounded && wallJumpCounter <= 0f)
@@ -302,6 +295,7 @@ public class MainChar : MonoBehaviour
                 jumpBufferCounter = 0f;
                 coyoteTimeCounter = 0f;
                 isWallSliding = false;
+                isWallGrabbing = false;
             }
             else if (coyoteTimeCounter > 0f && !wasWallJumping)
             {
@@ -315,7 +309,6 @@ public class MainChar : MonoBehaviour
             }
         }
 
-        // Limitar velocidad de caída
         if (rb.linearVelocity.y < -maxFallSpeed)
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, -maxFallSpeed);
@@ -460,20 +453,15 @@ public class MainChar : MonoBehaviour
             rb.AddForce(new Vector2(knockbackDir * playerKnockbackForce, 0), ForceMode2D.Impulse);
         }
 
-        // ===== SISTEMA DE REBOTE AL ATACAR HACIA ABAJO (Como Hollow Knight) =====
         if (isAttackingDown)
         {
             Transform currentAttackPoint = downAttackPoint;
 
-            // Detectar enemigos
             Collider2D[] hitEnemies = Physics2D.OverlapCircleAll(currentAttackPoint.position, attackRange, enemyLayer);
-
-            // Detectar suelo/plataformas
             Collider2D[] hitGround = Physics2D.OverlapCircleAll(currentAttackPoint.position, attackRange, groundLayer);
 
             bool hitSomething = false;
 
-            // Daño a enemigos
             foreach (Collider2D enemyCollider in hitEnemies)
             {
                 Enemigo enemy = enemyCollider.GetComponent<Enemigo>();
@@ -485,27 +473,30 @@ public class MainChar : MonoBehaviour
                 }
             }
 
-            // Detectar si pegamos al suelo
             if (hitGround.Length > 0)
             {
                 hitSomething = true;
                 Debug.Log("¡Pegaste al suelo!");
             }
 
-            // REBOTE AUTOMÁTICO (funciona tanto con enemigos como con suelo)
             if (hitSomething)
             {
-                // Rebote automático sin necesidad de mantener Jump
-                rb.linearVelocity = new Vector2(rb.linearVelocity.x, downAttackBounceForce);
-                Debug.Log("¡Rebote automático!");
-
-                canPogoJump = true;  // Habilita el pogo jump
-                lastDownAttackTime = Time.time;
+                if (consecutiveBounces < maxConsecutiveBounces)
+                {
+                    rb.linearVelocity = new Vector2(rb.linearVelocity.x, downAttackBounceForce);
+                    consecutiveBounces++;
+                    lastBounceTime = Time.time;
+                    Debug.Log($"¡Rebote automático! ({consecutiveBounces}/{maxConsecutiveBounces})");
+                }
+                else
+                {
+                    rb.linearVelocity = new Vector2(rb.linearVelocity.x, downAttackBounceForce * 0.3f);
+                    Debug.Log("¡Límite de rebotes alcanzado! Rebote reducido");
+                }
             }
         }
         else
         {
-            // Ataque lateral (código original)
             Transform currentAttackPoint = attackPoint;
             Collider2D[] hitEnemies = Physics2D.OverlapCircleAll(currentAttackPoint.position, attackRange, enemyLayer);
 
