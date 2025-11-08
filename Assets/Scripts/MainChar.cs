@@ -185,9 +185,8 @@ public class MainChar : MonoBehaviour
 
         // Wall Grab y Wall Slide
         bool isPushingWall = (moveInput * wallSide > 0);
-        bool wantsToGrab = canWallGrab && Input.GetMouseButton(1);
-
-        if (isTouchingWall && !isGrounded && isPushingWall && wantsToGrab)
+        bool wantsToGrab = canWallGrab && Input.GetKey(wallGrabKey);
+        if (isTouchingWall && !isGrounded && wantsToGrab)
         {
             isWallGrabbing = true;
             isWallSliding = false;

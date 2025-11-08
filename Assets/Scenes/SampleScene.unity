@@ -703,7 +703,7 @@ MonoBehaviour:
   JUGADOR1111: {fileID: 1229963981}
   VelocidadCamara: 15
   verticalDeadzone: 1.5
-  offset: {x: 0, y: 0, z: -10}
+  offset: {x: 0, y: 1, z: -1.7}
 --- !u!1 &600342339
 GameObject:
   m_ObjectHideFlags: 0
@@ -2233,7 +2233,7 @@ MonoBehaviour:
   wallJumpLockTime: 0.15
   wallJumpControlTime: 0.25
   canWallGrab: 1
-  wallGrabKey: 308
+  wallGrabKey: 324
   wallGrabStaminaMax: 3
   attackPoint: {fileID: 251638998}
   attackRange: 0.5
