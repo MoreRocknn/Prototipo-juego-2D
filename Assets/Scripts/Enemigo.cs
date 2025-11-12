@@ -10,13 +10,22 @@ public class Enemigo : MonoBehaviour
     public Vector2 knockbackForce = new Vector2(3f, 5f);
 
     [Header("=== PROTECCIÓN ANTI-VUELO ===")]
-    public float knockbackInvincibilityTime = 0.3f; // Invencibilidad tras recibir hit
-    private bool isKnockbackInvincible = false;     // Evita que el jugador abuse del knockback
+    public float knockbackInvincibilityTime = 0.3f;
+    private bool isKnockbackInvincible = false;
+
+    [Header("=== DETECCIÓN DE BORDES ===")]
+    public Transform edgeCheckPoint;
+    public float edgeCheckDistance = 0.5f;
+    public LayerMask groundLayer;
+    public bool showEdgeDebug = true;
+    public float edgeCheckOffset = 0.8f;
+    private bool isAtEdge = false;
 
     [Header("=== DETECCIÓN ===")]
     public float detectionRange = 8f;
     public float attackRange = 2f;
     public LayerMask PlayerLayer;
+    public LayerMask wallLayer;  // NUEVO: Capa de las paredes/obstáculos
     public Transform detectionPoint;
 
     [Header("=== COMPORTAMIENTO ===")]
@@ -24,6 +33,9 @@ public class Enemigo : MonoBehaviour
     public float chaseSpeed = 5f;
     public float guardTime = 0.8f;
     public float attackCooldown = 1.5f;
+    public float edgeStopDistance = 1f;
+    public float edgeWaitTime = 3f;
+    public float chaseTimeout = 5f;  // NUEVO: Tiempo máximo persiguiendo sin alcanzar
 
     [Header("=== ATAQUE ===")]
     public Transform attackPoint;
@@ -70,6 +82,8 @@ public class Enemigo : MonoBehaviour
     private float patrolTarget;
     private bool movingRight = true;
     private float waitTimer = 0f;
+    private float edgeWaitTimer = 0f;
+    private float chaseTimer = 0f; 
 
     void Start()
     {
@@ -96,6 +110,15 @@ public class Enemigo : MonoBehaviour
             detectionPoint = transform;
         }
 
+        if (edgeCheckPoint == null)
+        {
+            GameObject edgeCheck = new GameObject("EdgeCheckPoint");
+            edgeCheck.transform.parent = transform;
+            edgeCheck.transform.localPosition = new Vector3(edgeCheckOffset, -0.5f, 0);
+            edgeCheckPoint = edgeCheck.transform;
+            Debug.LogWarning($"{gameObject.name}: EdgeCheckPoint no asignado. Creado automáticamente.");
+        }
+
         if (shouldPatrol)
         {
             currentState = EnemyState.Patrol;
@@ -114,13 +137,15 @@ public class Enemigo : MonoBehaviour
         }
 
         attackTimer -= Time.deltaTime;
+        CheckEdge();
 
         Vector3 detectionPos = detectionPoint != null ? detectionPoint.position : transform.position;
         float distanceToPlayer = player != null ? Vector2.Distance(detectionPos, player.position) : Mathf.Infinity;
-        bool playerDetected = distanceToPlayer <= detectionRange;
-        bool playerInAttackRange = distanceToPlayer <= attackRange;
 
-        // SIEMPRE mirar hacia el jugador si está detectado
+        // MODIFICADO: Detección con Raycast para no ver a través de paredes
+        bool playerDetected = CanSeePlayer(detectionPos, distanceToPlayer);
+        bool playerInAttackRange = playerDetected && distanceToPlayer <= attackRange;
+
         if (playerDetected && player != null && currentState != EnemyState.Attack)
         {
             LookAtPlayer();
@@ -152,6 +177,64 @@ public class Enemigo : MonoBehaviour
         UpdateAnimations();
     }
 
+    bool CanSeePlayer(Vector3 detectionPos, float distance)
+    {
+        if (player == null || distance > detectionRange)
+        {
+            return false;
+        }
+
+        // Dirección hacia el jugador
+        Vector2 directionToPlayer = (player.position - detectionPos).normalized;
+
+        // Lanzar raycast hacia el jugador
+        RaycastHit2D hit = Physics2D.Raycast(detectionPos, directionToPlayer, distance, wallLayer | PlayerLayer);
+
+        // Si el raycast golpea algo
+        if (hit.collider != null)
+        {
+            // Solo detectamos si golpeó al jugador (no una pared)
+            if (hit.collider.CompareTag("Player"))
+            {
+                if (showDebugGizmos)
+                {
+                    Debug.DrawLine(detectionPos, hit.point, Color.green);
+                }
+                return true;
+            }
+            else
+            {
+                // Golpeó una pared u otro obstáculo
+                if (showDebugGizmos)
+                {
+                    Debug.DrawLine(detectionPos, hit.point, Color.red);
+                }
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    void CheckEdge()
+    {
+        if (edgeCheckPoint == null) return;
+
+        float direction = isFacingRight ? 1f : -1f;
+        float checkPosX = transform.position.x + (edgeCheckOffset * direction);
+        float checkPosY = edgeCheckPoint.position.y;
+        Vector2 checkStartPoint = new Vector2(checkPosX, checkPosY);
+
+        RaycastHit2D hit = Physics2D.Raycast(checkStartPoint, Vector2.down, edgeCheckDistance, groundLayer);
+        isAtEdge = (hit.collider == null);
+
+        if (showEdgeDebug)
+        {
+            Color debugColor = isAtEdge ? Color.red : Color.cyan;
+            Debug.DrawRay(checkStartPoint, Vector2.down * edgeCheckDistance, debugColor);
+        }
+    }
+
     void HandleIdle(bool playerDetected, float distance)
     {
         rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
@@ -174,6 +257,15 @@ public class Enemigo : MonoBehaviour
         {
             waitTimer -= Time.deltaTime;
             rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
+            return;
+        }
+
+        if (isAtEdge)
+        {
+            Debug.Log($"{gameObject.name}: ¡Borde detectado! Cambiando dirección");
+            movingRight = !movingRight;
+            waitTimer = waitTimeAtPatrolPoint;
+            Flip();
             return;
         }
 
@@ -212,35 +304,93 @@ public class Enemigo : MonoBehaviour
                 currentState = EnemyState.Patrol;
             else
                 currentState = EnemyState.Idle;
+            edgeWaitTimer = 0f;
+            chaseTimer = 0f;  // NUEVO: Resetear timer de persecución
             return;
         }
 
         LookAtPlayer();
-
         guardTimer += Time.deltaTime;
 
         if (inAttackRange && guardTimer >= guardTime && attackTimer <= 0)
         {
             ExitGuardState();
             EnterAttackState();
+            edgeWaitTimer = 0f;
+            chaseTimer = 0f;  // NUEVO: Resetear timer
         }
-        else if (!inAttackRange && guardTimer >= guardTime * 0.5f)
+        else if (!inAttackRange && guardTimer >= guardTime)
         {
-            ExitGuardState();
-            currentState = EnemyState.Chase;
+            if (!isAtEdge)
+            {
+                ExitGuardState();
+                currentState = EnemyState.Chase;
+                edgeWaitTimer = 0f;
+                chaseTimer = 0f;  // NUEVO: Iniciar contador de persecución
+            }
+            else
+            {
+                edgeWaitTimer += Time.deltaTime;
+
+                if (edgeWaitTimer >= edgeWaitTime)
+                {
+                    Debug.Log("Esperé 3s en el borde. Volviendo a patrullar.");
+                    ExitGuardState();
+                    movingRight = !isFacingRight;
+                    Flip();
+                    waitTimer = waitTimeAtPatrolPoint;
+                    currentState = EnemyState.Patrol;
+                    edgeWaitTimer = 0f;
+                    chaseTimer = 0f;  // NUEVO: Resetear timer
+                }
+            }
+        }
+
+        if (!isAtEdge)
+        {
+            edgeWaitTimer = 0f;
         }
     }
 
     void HandleChase(bool playerDetected, bool inAttackRange)
     {
-        if (!playerDetected)
+        // NUEVO: Incrementar el timer de persecución
+        chaseTimer += Time.deltaTime;
+
+        // NUEVO: Si pasaron 5 segundos persiguiendo, volver a patrullar
+        if (chaseTimer >= chaseTimeout)
         {
+            Debug.Log($"{gameObject.name}: No pudo alcanzar al jugador en {chaseTimeout}s. Volviendo a patrullar.");
+            chaseTimer = 0f;
+            rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
+
             if (shouldPatrol)
                 currentState = EnemyState.Patrol;
             else
                 currentState = EnemyState.Idle;
             return;
         }
+
+        if (!playerDetected)
+        {
+            chaseTimer = 0f;  // NUEVO: Resetear si pierde de vista
+            if (shouldPatrol)
+                currentState = EnemyState.Patrol;
+            else
+                currentState = EnemyState.Idle;
+            return;
+        }
+
+        if (isAtEdge)
+        {
+            Debug.Log($"{gameObject.name}: ¡Borde detectado durante persecución! Entrando en Guardia.");
+            rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
+            LookAtPlayer();
+            EnterGuardState();
+            return;
+        }
+
+        edgeWaitTimer = 0f;
 
         Vector2 direction = (player.position - transform.position).normalized;
         rb.linearVelocity = new Vector2(direction.x * chaseSpeed, rb.linearVelocity.y);
@@ -250,6 +400,7 @@ public class Enemigo : MonoBehaviour
         {
             if (attackTimer <= 0)
             {
+                chaseTimer = 0f;  
                 EnterAttackState();
             }
             else
@@ -377,9 +528,6 @@ public class Enemigo : MonoBehaviour
 
     public void TakeDamage(int damage, float knockbackDirection)
     {
-        // ============================================
-        // ARREGLADO: Protección anti-vuelo
-        // ============================================
         if (isInvincible || isKnockbackInvincible)
         {
             Debug.Log($"{gameObject.name}: Invencible - Hit ignorado");
@@ -398,6 +546,7 @@ public class Enemigo : MonoBehaviour
 
         ExitGuardState();
         currentState = EnemyState.Stunned;
+        chaseTimer = 0f;  
 
         if (health <= 0)
         {
@@ -406,7 +555,7 @@ public class Enemigo : MonoBehaviour
         else
         {
             StartCoroutine(InvincibilityFrames());
-            StartCoroutine(KnockbackInvincibility()); // NUEVO: Evita spam de hits
+            StartCoroutine(KnockbackInvincibility());
         }
     }
 
@@ -433,9 +582,6 @@ public class Enemigo : MonoBehaviour
         currentState = EnemyState.Idle;
     }
 
-    // ============================================
-    // NUEVO: Invencibilidad temporal al knockback
-    // ============================================
     private IEnumerator KnockbackInvincibility()
     {
         isKnockbackInvincible = true;
@@ -479,6 +625,36 @@ public class Enemigo : MonoBehaviour
         {
             Gizmos.color = Color.green;
             Gizmos.DrawLine(startPosition - Vector2.right * patrolDistance, startPosition + Vector2.right * patrolDistance);
+        }
+
+        if (edgeCheckPoint != null)
+        {
+            float direction = isFacingRight ? 1f : -1f;
+            float checkPosX = transform.position.x + (edgeCheckOffset * direction);
+            float checkPosY = edgeCheckPoint.position.y;
+            Vector2 checkStartPoint = new Vector2(checkPosX, checkPosY);
+
+            Gizmos.color = isAtEdge ? Color.red : Color.cyan;
+            Gizmos.DrawLine(checkStartPoint, checkStartPoint + Vector2.down * edgeCheckDistance);
+            Gizmos.DrawWireSphere(checkStartPoint + Vector2.down * edgeCheckDistance, 0.1f);
+        }
+
+        // NUEVO: Visualizar raycast de detección en el editor
+        if (Application.isPlaying && player != null)
+        {
+            Vector2 directionToPlayer = (player.position - detectionPos).normalized;
+            float distance = Vector2.Distance(detectionPos, player.position);
+
+            if (distance <= detectionRange)
+            {
+                RaycastHit2D hit = Physics2D.Raycast(detectionPos, directionToPlayer, distance, wallLayer | PlayerLayer);
+
+                if (hit.collider != null)
+                {
+                    Gizmos.color = hit.collider.CompareTag("Player") ? Color.green : Color.red;
+                    Gizmos.DrawLine(detectionPos, hit.point);
+                }
+            }
         }
     }
 }
