@@ -371,8 +371,9 @@ public class Enemigo : MonoBehaviour
         // Timeout de persecución
         if (chaseTimer >= chaseTimeout)
         {
-            Debug.Log($"{gameObject.name}: Timeout de persecución alcanzado");
+            Debug.Log($"{gameObject.name}: Timeout de persecución - Ignorando jugador por 3s");
             rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
+            playerIgnoreTimer = 3f;
             ReturnToPatrol();
             return;
         }
@@ -472,15 +473,59 @@ public class Enemigo : MonoBehaviour
     {
         isAttacking = true;
 
+        // INSTANCIAR EFECTO DE ATAQUE
         if (attackEffect != null && attackPoint != null)
         {
-            GameObject effect = Instantiate(attackEffect, attackPoint.position, Quaternion.identity);
-            Destroy(effect, 1f);
+            Debug.Log($"{gameObject.name}: Instanciando efecto de ataque en {attackPoint.position}");
+
+            // Instanciar el efecto como hijo del attackPoint para que se mueva con el enemigo
+            GameObject effect = Instantiate(attackEffect, attackPoint);
+
+            // Posición local relativa al attackPoint
+            effect.transform.localPosition = Vector3.zero;
+
+            // AUMENTAR EL TAMAÑO DEL EFECTO (ajusta estos valores si es necesario)
+            float effectScale = 0.7f; // Cambiar este valor para hacer el efecto más grande o pequeño
+            effect.transform.localScale = new Vector3(
+                (isFacingRight ? 1f : -1f) * effectScale,  // Voltear según dirección y escalar
+                effectScale,
+                effectScale
+            );
+
+            // Rotación correcta
+            effect.transform.localRotation = Quaternion.identity;
+
+            // Si el efecto tiene Particle System, iniciarlo
+            ParticleSystem ps = effect.GetComponent<ParticleSystem>();
+            if (ps != null)
+            {
+                ps.Play();
+                Debug.Log($"{gameObject.name}: Particle System activado");
+            }
+
+            // Si tiene SpriteRenderer, asegurar que es visible
+            SpriteRenderer sr = effect.GetComponent<SpriteRenderer>();
+            if (sr != null)
+            {
+                sr.sortingOrder = 10; // Ponerlo encima de otros sprites
+                Debug.Log($"{gameObject.name}: SpriteRenderer configurado");
+            }
+
+            // Destruir el efecto después del ataque
+            Destroy(effect, attackDuration + 0.5f);
+        }
+        else
+        {
+            if (attackEffect == null)
+                Debug.LogWarning($"{gameObject.name}: ¡No hay 'Attack Effect' asignado en el Inspector!");
+            if (attackPoint == null)
+                Debug.LogWarning($"{gameObject.name}: ¡No hay 'Attack Point' asignado en el Inspector!");
         }
 
+        // REALIZAR EL ATAQUE
         if (attackPoint != null)
         {
-            Collider2D[] hits = Physics2D.OverlapCircleAll(attackPoint.position, attackRadius, PlayerLayer);
+            Collider2D[] hits = Physics2D.OverlapCircleAll(attackPoint.position, attackRadius);
 
             foreach (Collider2D hit in hits)
             {
@@ -494,6 +539,10 @@ public class Enemigo : MonoBehaviour
                     }
                 }
             }
+        }
+        else
+        {
+            Debug.LogError($"{gameObject.name}: ¡El 'AttackPoint' no está asignado en el Inspector! El ataque fallará.");
         }
 
         yield return new WaitForSeconds(attackDuration);
@@ -583,27 +632,35 @@ public class Enemigo : MonoBehaviour
 
         if (health <= 0)
         {
-            Die();
+            Die(); // <-- AQUÍ SE LLAMA A LA FUNCIÓN QUE FALTA
         }
         else
         {
-            StartCoroutine(InvincibilityFrames());
+            // Después del daño, el enemigo entrará en modo persecución agresiva
+            StartCoroutine(RecoverAndChase());
             StartCoroutine(KnockbackInvincibility());
         }
     }
 
+    // ===============================================
+    // --- FUNCIÓN QUE FALTABA ---
+    // ===============================================
     void Die()
     {
         Debug.Log($"{gameObject.name}: Murió");
+        // Aquí puedes añadir efectos de muerte, puntuación, etc.
         Destroy(gameObject);
     }
+    // ===============================================
 
-    IEnumerator InvincibilityFrames()
+    // Nueva coroutine que reemplaza InvincibilityFrames y hace que persiga después del golpe
+    IEnumerator RecoverAndChase()
     {
         isInvincible = true;
 
         float flashDuration = invincibilityTime / 10f;
 
+        // Efecto visual de parpadeo mientras se recupera
         for (int i = 0; i < 5; i++)
         {
             if (spriteRenderer != null) spriteRenderer.color = Color.red;
@@ -613,7 +670,21 @@ public class Enemigo : MonoBehaviour
         }
 
         isInvincible = false;
-        currentState = EnemyState.Idle;
+
+        // Después de recuperarse, entrar en modo persecución agresiva
+        if (player != null)
+        {
+            Debug.Log($"{gameObject.name}: ¡Recuperado! Entrando en modo persecución agresiva");
+            currentState = EnemyState.Chase;
+            chaseTimer = 0f;
+            playerIgnoreTimer = 0f; // No ignorar al jugador
+            attackTimer = 0f; // Permitir atacar inmediatamente si está en rango
+        }
+        else
+        {
+            // Si no hay jugador, volver a patrullar
+            currentState = EnemyState.Idle;
+        }
     }
 
     IEnumerator KnockbackInvincibility()

@@ -24,9 +24,9 @@ public class MainChar : MonoBehaviour
     private float wallJumpCounter = 0f;
     private bool wasWallJumping = false;
 
-    [Header("Wall Grab (Clic Derecho)")]
+    [Header("Wall Grab")]
     public bool canWallGrab = true;
-    public KeyCode wallGrabKey = KeyCode.LeftShift;  // Cambiar a Shift por defecto
+    public KeyCode wallGrabKey = KeyCode.LeftShift;
     public float wallGrabStaminaMax = 3f;
     private float wallGrabStamina;
     private bool isWallGrabbing = false;
@@ -43,8 +43,12 @@ public class MainChar : MonoBehaviour
     public LayerMask enemyLayer;
     public int attackDamage = 1;
     public float playerKnockbackForce = 3f;
-    public Transform downAttackPoint;
     public GameObject sideAttackEffect;
+    
+    // DOWN ATTACK DESHABILITADO TEMPORALMENTE
+    [Header("Down Attack (DESHABILITADO)")]
+    public bool enableDownAttack = false; // Cambia a true para reactivar
+    public Transform downAttackPoint;
     public GameObject downAttackEffect;
     private bool isAttackingDown = false;
 
@@ -61,17 +65,17 @@ public class MainChar : MonoBehaviour
     public float maxFallSpeed = 22f;
     public float wallJumpAirDrag = 0.92f;
 
-    [Header("=== DOWN ATTACK BOUNCE (Hollow Knight) ===")]
+    [Header("Down Attack Bounce (Deshabilitado)")]
     public float downAttackBounceForce = 25f;
     public float downAttackSmallBounceForce = 12f;
 
-    [Header("=== LÍMITE DE REBOTES CONSECUTIVOS ===")]
+    [Header("Límite de Rebotes")]
     public int maxConsecutiveBounces = 3;
     public float bounceResetTime = 0.5f;
     private int consecutiveBounces = 0;
     private float lastBounceTime = -1f;
 
-    [Header("=== SISTEMA DE VIDA ===")]
+    [Header("Sistema de Vida")]
     public int maxHealth = 3;
     public int currentHealth = 3;
     public float damageInvincibilityTime = 1f;
@@ -103,10 +107,33 @@ public class MainChar : MonoBehaviour
 
     void Update()
     {
-        moveInput = Input.GetAxisRaw("Horizontal");
-        float verticalInput = Input.GetAxisRaw("Vertical");
+        // ========================================
+        // CONTROLES PERSONALIZADOS: FLECHAS
+        // ========================================
+        moveInput = 0f;
+        if (Input.GetKey(KeyCode.RightArrow))
+        {
+            moveInput = 1f;
+        }
+        else if (Input.GetKey(KeyCode.LeftArrow))
+        {
+            moveInput = -1f;
+        }
 
-        if (Input.GetButtonDown("Jump"))
+        float verticalInput = 0f;
+        if (Input.GetKey(KeyCode.DownArrow))
+        {
+            verticalInput = -1f;
+        }
+        else if (Input.GetKey(KeyCode.UpArrow))
+        {
+            verticalInput = 1f;
+        }
+
+        // ========================================
+        // SALTO CON ESPACIO
+        // ========================================
+        if (Input.GetKeyDown(KeyCode.Space))
         {
             jumpBufferCounter = jumpBufferTime;
             jumpReleased = false;
@@ -116,7 +143,7 @@ public class MainChar : MonoBehaviour
             jumpBufferCounter -= Time.deltaTime;
         }
 
-        if (Input.GetButtonUp("Jump"))
+        if (Input.GetKeyUp(KeyCode.Space))
         {
             jumpReleased = true;
 
@@ -126,10 +153,14 @@ public class MainChar : MonoBehaviour
             }
         }
 
+        // ========================================
+        // ATAQUE CON TECLA X
+        // ========================================
         isAttackingDown = false;
-        if (Input.GetButtonDown("Fire1"))
+        if (Input.GetKeyDown(KeyCode.X))
         {
-            if (verticalInput < 0 && !isGrounded)
+            // Solo permitir down attack si está habilitado
+            if (enableDownAttack && verticalInput < 0 && !isGrounded)
             {
                 isAttackingDown = true;
             }
@@ -149,7 +180,7 @@ public class MainChar : MonoBehaviour
         {
             rb.gravityScale = defaultGravityScale * fallGravityMultiplier;
         }
-        else if (rb.linearVelocity.y > 0.5f && !Input.GetButton("Jump"))
+        else if (rb.linearVelocity.y > 0.5f && !Input.GetKey(KeyCode.Space))
         {
             rb.gravityScale = defaultGravityScale * lowJumpMultiplier;
         }
@@ -452,7 +483,8 @@ public class MainChar : MonoBehaviour
             rb.AddForce(new Vector2(knockbackDir * playerKnockbackForce, 0), ForceMode2D.Impulse);
         }
 
-        if (isAttackingDown)
+        // DOWN ATTACK - Solo si está habilitado
+        if (isAttackingDown && enableDownAttack)
         {
             Transform currentAttackPoint = downAttackPoint;
 
@@ -494,6 +526,7 @@ public class MainChar : MonoBehaviour
                 }
             }
         }
+        // SIDE ATTACK - Siempre activo
         else
         {
             Transform currentAttackPoint = attackPoint;
@@ -525,8 +558,12 @@ public class MainChar : MonoBehaviour
         if (attackPoint != null)
             Gizmos.DrawWireSphere(attackPoint.position, attackRange);
 
-        Gizmos.color = Color.yellow;
-        if (downAttackPoint != null)
-            Gizmos.DrawWireSphere(downAttackPoint.position, attackRange);
+        // Solo mostrar down attack si está habilitado
+        if (enableDownAttack)
+        {
+            Gizmos.color = Color.yellow;
+            if (downAttackPoint != null)
+                Gizmos.DrawWireSphere(downAttackPoint.position, attackRange);
+        }
     }
 }
