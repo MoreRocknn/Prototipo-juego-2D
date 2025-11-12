@@ -25,7 +25,7 @@ public class Enemigo : MonoBehaviour
     public float detectionRange = 8f;
     public float attackRange = 2f;
     public LayerMask PlayerLayer;
-    public LayerMask wallLayer;  // NUEVO: Capa de las paredes/obstáculos
+    public LayerMask wallLayer;
     public Transform detectionPoint;
 
     [Header("=== COMPORTAMIENTO ===")]
@@ -33,9 +33,9 @@ public class Enemigo : MonoBehaviour
     public float chaseSpeed = 5f;
     public float guardTime = 0.8f;
     public float attackCooldown = 1.5f;
-    public float edgeStopDistance = 1f;
     public float edgeWaitTime = 3f;
-    public float chaseTimeout = 5f;  // NUEVO: Tiempo máximo persiguiendo sin alcanzar
+    public float chaseTimeout = 5f;
+    public float maxEdgeWaitTime = 10f;
 
     [Header("=== ATAQUE ===")]
     public Transform attackPoint;
@@ -43,7 +43,7 @@ public class Enemigo : MonoBehaviour
     public int attackDamage = 1;
     public float attackDuration = 0.3f;
 
-    [Header("=== PATRULLA (opcional) ===")]
+    [Header("=== PATRULLA ===")]
     public bool shouldPatrol = true;
     public float patrolDistance = 5f;
     public float waitTimeAtPatrolPoint = 2f;
@@ -69,11 +69,14 @@ public class Enemigo : MonoBehaviour
 
     private EnemyState currentState = EnemyState.Idle;
 
+    // Componentes cacheados
     private SpriteRenderer spriteRenderer;
     private Rigidbody2D rb;
     private Transform player;
     private Animator animator;
+    private Color originalColor;
 
+    // Estado
     private bool isFacingRight = true;
     private float attackTimer = 0f;
     private float guardTimer = 0f;
@@ -83,14 +86,23 @@ public class Enemigo : MonoBehaviour
     private bool movingRight = true;
     private float waitTimer = 0f;
     private float edgeWaitTimer = 0f;
-    private float chaseTimer = 0f; 
+    private float chaseTimer = 0f;
+    private float totalEdgeTime = 0f;
+    private float playerIgnoreTimer = 0f;
 
     void Start()
     {
+        // Cachear componentes
         spriteRenderer = GetComponent<SpriteRenderer>();
         rb = GetComponent<Rigidbody2D>();
         animator = GetComponent<Animator>();
 
+        if (spriteRenderer != null)
+        {
+            originalColor = spriteRenderer.color;
+        }
+
+        // Buscar jugador
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
         if (playerObj != null)
         {
@@ -102,63 +114,68 @@ public class Enemigo : MonoBehaviour
             Debug.LogError("¡No se encontró GameObject con Tag 'Player'!");
         }
 
+        // Inicializar patrulla
         startPosition = transform.position;
         patrolTarget = startPosition.x + patrolDistance;
 
+        // Crear detection point si no existe
         if (detectionPoint == null)
         {
             detectionPoint = transform;
         }
 
+        // Crear edge check point si no existe
         if (edgeCheckPoint == null)
         {
             GameObject edgeCheck = new GameObject("EdgeCheckPoint");
-            edgeCheck.transform.parent = transform;
+            edgeCheck.transform.SetParent(transform);
             edgeCheck.transform.localPosition = new Vector3(edgeCheckOffset, -0.5f, 0);
             edgeCheckPoint = edgeCheck.transform;
-            Debug.LogWarning($"{gameObject.name}: EdgeCheckPoint no asignado. Creado automáticamente.");
+            Debug.LogWarning($"{gameObject.name}: EdgeCheckPoint creado automáticamente. Ajusta su altura (Y) en el inspector.");
         }
 
-        if (shouldPatrol)
-        {
-            currentState = EnemyState.Patrol;
-        }
-        else
-        {
-            currentState = EnemyState.Idle;
-        }
+        // Estado inicial
+        currentState = shouldPatrol ? EnemyState.Patrol : EnemyState.Idle;
     }
 
     void Update()
     {
+        // No hacer nada si está invencible o aturdido
         if (isInvincible || currentState == EnemyState.Stunned)
         {
             return;
         }
 
+        // Actualizar timers
+        playerIgnoreTimer -= Time.deltaTime;
         attackTimer -= Time.deltaTime;
+
+        // Verificar borde
         CheckEdge();
 
-        Vector3 detectionPos = detectionPoint != null ? detectionPoint.position : transform.position;
+        // Calcular detección del jugador
+        Vector3 detectionPos = detectionPoint.position;
         float distanceToPlayer = player != null ? Vector2.Distance(detectionPos, player.position) : Mathf.Infinity;
 
-        // MODIFICADO: Detección con Raycast para no ver a través de paredes
-        bool playerDetected = CanSeePlayer(detectionPos, distanceToPlayer);
+        bool canSeePlayer = CanSeePlayer(detectionPos, distanceToPlayer);
+        bool playerDetected = canSeePlayer && (playerIgnoreTimer <= 0f);
         bool playerInAttackRange = playerDetected && distanceToPlayer <= attackRange;
 
+        // Mirar al jugador si está detectado
         if (playerDetected && player != null && currentState != EnemyState.Attack)
         {
             LookAtPlayer();
         }
 
+        // Máquina de estados
         switch (currentState)
         {
             case EnemyState.Idle:
-                HandleIdle(playerDetected, distanceToPlayer);
+                HandleIdle(playerDetected);
                 break;
 
             case EnemyState.Patrol:
-                HandlePatrol(playerDetected, distanceToPlayer);
+                HandlePatrol(playerDetected);
                 break;
 
             case EnemyState.Guard:
@@ -184,33 +201,19 @@ public class Enemigo : MonoBehaviour
             return false;
         }
 
-        // Dirección hacia el jugador
         Vector2 directionToPlayer = (player.position - detectionPos).normalized;
-
-        // Lanzar raycast hacia el jugador
         RaycastHit2D hit = Physics2D.Raycast(detectionPos, directionToPlayer, distance, wallLayer | PlayerLayer);
 
-        // Si el raycast golpea algo
         if (hit.collider != null)
         {
-            // Solo detectamos si golpeó al jugador (no una pared)
-            if (hit.collider.CompareTag("Player"))
+            bool canSee = hit.collider.CompareTag("Player");
+
+            if (showDebugGizmos)
             {
-                if (showDebugGizmos)
-                {
-                    Debug.DrawLine(detectionPos, hit.point, Color.green);
-                }
-                return true;
+                Debug.DrawLine(detectionPos, hit.point, canSee ? Color.green : Color.red);
             }
-            else
-            {
-                // Golpeó una pared u otro obstáculo
-                if (showDebugGizmos)
-                {
-                    Debug.DrawLine(detectionPos, hit.point, Color.red);
-                }
-                return false;
-            }
+
+            return canSee;
         }
 
         return false;
@@ -221,21 +224,21 @@ public class Enemigo : MonoBehaviour
         if (edgeCheckPoint == null) return;
 
         float direction = isFacingRight ? 1f : -1f;
-        float checkPosX = transform.position.x + (edgeCheckOffset * direction);
-        float checkPosY = edgeCheckPoint.position.y;
-        Vector2 checkStartPoint = new Vector2(checkPosX, checkPosY);
+        Vector2 checkStartPoint = new Vector2(
+            transform.position.x + (edgeCheckOffset * direction),
+            edgeCheckPoint.position.y
+        );
 
         RaycastHit2D hit = Physics2D.Raycast(checkStartPoint, Vector2.down, edgeCheckDistance, groundLayer);
         isAtEdge = (hit.collider == null);
 
         if (showEdgeDebug)
         {
-            Color debugColor = isAtEdge ? Color.red : Color.cyan;
-            Debug.DrawRay(checkStartPoint, Vector2.down * edgeCheckDistance, debugColor);
+            Debug.DrawRay(checkStartPoint, Vector2.down * edgeCheckDistance, isAtEdge ? Color.red : Color.cyan);
         }
     }
 
-    void HandleIdle(bool playerDetected, float distance)
+    void HandleIdle(bool playerDetected)
     {
         rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
 
@@ -245,7 +248,7 @@ public class Enemigo : MonoBehaviour
         }
     }
 
-    void HandlePatrol(bool playerDetected, float distance)
+    void HandlePatrol(bool playerDetected)
     {
         if (playerDetected)
         {
@@ -262,7 +265,7 @@ public class Enemigo : MonoBehaviour
 
         if (isAtEdge)
         {
-            Debug.Log($"{gameObject.name}: ¡Borde detectado! Cambiando dirección");
+            Debug.Log($"{gameObject.name}: Borde detectado, cambiando dirección");
             movingRight = !movingRight;
             waitTimer = waitTimeAtPatrolPoint;
             Flip();
@@ -272,15 +275,13 @@ public class Enemigo : MonoBehaviour
         float direction = movingRight ? 1f : -1f;
         rb.linearVelocity = new Vector2(direction * moveSpeed, rb.linearVelocity.y);
 
-        if (movingRight && !isFacingRight)
-        {
-            Flip();
-        }
-        else if (!movingRight && isFacingRight)
+        // Ajustar dirección visual
+        if ((movingRight && !isFacingRight) || (!movingRight && isFacingRight))
         {
             Flip();
         }
 
+        // Verificar límites de patrulla
         if (movingRight && transform.position.x >= patrolTarget)
         {
             movingRight = false;
@@ -297,51 +298,62 @@ public class Enemigo : MonoBehaviour
     {
         rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
 
+        // Si el jugador se aleja, volver a patrullar
         if (!playerDetected)
         {
-            ExitGuardState();
-            if (shouldPatrol)
-                currentState = EnemyState.Patrol;
-            else
-                currentState = EnemyState.Idle;
-            edgeWaitTimer = 0f;
-            chaseTimer = 0f;  // NUEVO: Resetear timer de persecución
+            Debug.Log($"{gameObject.name}: Jugador fuera de rango");
+            ReturnToPatrol();
             return;
         }
 
         LookAtPlayer();
         guardTimer += Time.deltaTime;
 
+        // Contador de tiempo en el borde
+        if (isAtEdge)
+        {
+            totalEdgeTime += Time.deltaTime;
+
+            // Si pasaron 10 segundos en el borde, volver a patrullar
+            if (totalEdgeTime >= maxEdgeWaitTime)
+            {
+                Debug.Log($"{gameObject.name}: Tiempo máximo en borde alcanzado");
+                TurnAroundAndPatrol();
+                return;
+            }
+        }
+        else
+        {
+            totalEdgeTime = 0f;
+        }
+
+        // Intentar atacar si está en rango
         if (inAttackRange && guardTimer >= guardTime && attackTimer <= 0)
         {
             ExitGuardState();
             EnterAttackState();
-            edgeWaitTimer = 0f;
-            chaseTimer = 0f;  // NUEVO: Resetear timer
+            ResetTimers();
         }
+        // Si no está en rango de ataque pero ya esperó
         else if (!inAttackRange && guardTimer >= guardTime)
         {
             if (!isAtEdge)
             {
+                // Perseguir
                 ExitGuardState();
                 currentState = EnemyState.Chase;
-                edgeWaitTimer = 0f;
-                chaseTimer = 0f;  // NUEVO: Iniciar contador de persecución
+                chaseTimer = 0f;
+                totalEdgeTime = 0f;
             }
             else
             {
                 edgeWaitTimer += Time.deltaTime;
 
+                // Después de 3 segundos en el borde, intentar volver a patrullar
                 if (edgeWaitTimer >= edgeWaitTime)
                 {
-                    Debug.Log("Esperé 3s en el borde. Volviendo a patrullar.");
-                    ExitGuardState();
-                    movingRight = !isFacingRight;
-                    Flip();
-                    waitTimer = waitTimeAtPatrolPoint;
-                    currentState = EnemyState.Patrol;
-                    edgeWaitTimer = 0f;
-                    chaseTimer = 0f;  // NUEVO: Resetear timer
+                    Debug.Log($"{gameObject.name}: Esperó {edgeWaitTime}s en el borde");
+                    TurnAroundAndPatrol();
                 }
             }
         }
@@ -352,55 +364,49 @@ public class Enemigo : MonoBehaviour
         }
     }
 
-    void HandleChase(bool playerDetected, bool inAttackRange)
+    void HandleChase(bool playerDetected, bool playerInAttackRange)
     {
-        // NUEVO: Incrementar el timer de persecución
         chaseTimer += Time.deltaTime;
 
-        // NUEVO: Si pasaron 5 segundos persiguiendo, volver a patrullar
+        // Timeout de persecución
         if (chaseTimer >= chaseTimeout)
         {
-            Debug.Log($"{gameObject.name}: No pudo alcanzar al jugador en {chaseTimeout}s. Volviendo a patrullar.");
-            chaseTimer = 0f;
+            Debug.Log($"{gameObject.name}: Timeout de persecución alcanzado");
             rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
-
-            if (shouldPatrol)
-                currentState = EnemyState.Patrol;
-            else
-                currentState = EnemyState.Idle;
+            ReturnToPatrol();
             return;
         }
 
+        // Perder de vista al jugador
         if (!playerDetected)
         {
-            chaseTimer = 0f;  // NUEVO: Resetear si pierde de vista
-            if (shouldPatrol)
-                currentState = EnemyState.Patrol;
-            else
-                currentState = EnemyState.Idle;
+            Debug.Log($"{gameObject.name}: Perdió de vista al jugador");
+            ReturnToPatrol();
             return;
         }
 
+        // Borde durante persecución
         if (isAtEdge)
         {
-            Debug.Log($"{gameObject.name}: ¡Borde detectado durante persecución! Entrando en Guardia.");
+            Debug.Log($"{gameObject.name}: Borde detectado durante persecución");
             rb.linearVelocity = new Vector2(0, rb.linearVelocity.y);
             LookAtPlayer();
             EnterGuardState();
             return;
         }
 
-        edgeWaitTimer = 0f;
-
+        // Perseguir
         Vector2 direction = (player.position - transform.position).normalized;
         rb.linearVelocity = new Vector2(direction.x * chaseSpeed, rb.linearVelocity.y);
 
         LookAtPlayer();
-        if (inAttackRange)
+
+        // Intentar atacar si está en rango
+        if (playerInAttackRange)
         {
             if (attackTimer <= 0)
             {
-                chaseTimer = 0f;  
+                chaseTimer = 0f;
                 EnterAttackState();
             }
             else
@@ -433,7 +439,7 @@ public class Enemigo : MonoBehaviour
             spriteRenderer.color = guardColor;
         }
 
-        Debug.Log($"{gameObject.name}: ¡En GUARDIA!");
+        Debug.Log($"{gameObject.name}: En Guardia");
     }
 
     void ExitGuardState()
@@ -445,7 +451,7 @@ public class Enemigo : MonoBehaviour
 
         if (spriteRenderer != null && !isInvincible)
         {
-            spriteRenderer.color = Color.white;
+            spriteRenderer.color = originalColor;
         }
     }
 
@@ -459,30 +465,33 @@ public class Enemigo : MonoBehaviour
             spriteRenderer.color = attackColor;
         }
 
-        Debug.Log($"{gameObject.name}: ¡ATACA!");
+        Debug.Log($"{gameObject.name}: Atacando");
     }
 
     IEnumerator PerformAttack()
     {
         isAttacking = true;
 
-        if (attackEffect != null)
+        if (attackEffect != null && attackPoint != null)
         {
             GameObject effect = Instantiate(attackEffect, attackPoint.position, Quaternion.identity);
             Destroy(effect, 1f);
         }
 
-        Collider2D[] hits = Physics2D.OverlapCircleAll(attackPoint.position, attackRadius, PlayerLayer);
-
-        foreach (Collider2D hit in hits)
+        if (attackPoint != null)
         {
-            if (hit.CompareTag("Player"))
+            Collider2D[] hits = Physics2D.OverlapCircleAll(attackPoint.position, attackRadius, PlayerLayer);
+
+            foreach (Collider2D hit in hits)
             {
-                MainChar playerScript = hit.GetComponent<MainChar>();
-                if (playerScript != null)
+                if (hit.CompareTag("Player"))
                 {
-                    playerScript.TakeDamage(attackDamage);
-                    Debug.Log($"{gameObject.name}: ¡Golpeó al jugador por {attackDamage} de daño!");
+                    MainChar playerScript = hit.GetComponent<MainChar>();
+                    if (playerScript != null)
+                    {
+                        playerScript.TakeDamage(attackDamage);
+                        Debug.Log($"{gameObject.name}: Golpeó al jugador por {attackDamage} de daño");
+                    }
                 }
             }
         }
@@ -494,7 +503,7 @@ public class Enemigo : MonoBehaviour
 
         if (spriteRenderer != null && !isInvincible)
         {
-            spriteRenderer.color = Color.white;
+            spriteRenderer.color = originalColor;
         }
 
         EnterGuardState();
@@ -506,11 +515,7 @@ public class Enemigo : MonoBehaviour
 
         bool playerOnRight = player.position.x > transform.position.x;
 
-        if (playerOnRight && !isFacingRight)
-        {
-            Flip();
-        }
-        else if (!playerOnRight && isFacingRight)
+        if ((playerOnRight && !isFacingRight) || (!playerOnRight && isFacingRight))
         {
             Flip();
         }
@@ -523,30 +528,58 @@ public class Enemigo : MonoBehaviour
         scale.x *= -1;
         transform.localScale = scale;
 
-        Debug.Log($"{gameObject.name}: Volteado - FacingRight={isFacingRight}");
+        Debug.Log($"{gameObject.name}: Volteado - Mirando {(isFacingRight ? "derecha" : "izquierda")}");
+    }
+
+    void ReturnToPatrol()
+    {
+        ExitGuardState();
+        currentState = shouldPatrol ? EnemyState.Patrol : EnemyState.Idle;
+        ResetTimers();
+    }
+
+    void TurnAroundAndPatrol()
+    {
+        ExitGuardState();
+        movingRight = !isFacingRight;
+        Flip();
+        waitTimer = waitTimeAtPatrolPoint;
+        currentState = EnemyState.Patrol;
+        ResetTimers();
+        playerIgnoreTimer = waitTimeAtPatrolPoint + 2f;
+    }
+
+    void ResetTimers()
+    {
+        edgeWaitTimer = 0f;
+        chaseTimer = 0f;
+        totalEdgeTime = 0f;
     }
 
     public void TakeDamage(int damage, float knockbackDirection)
     {
         if (isInvincible || isKnockbackInvincible)
         {
-            Debug.Log($"{gameObject.name}: Invencible - Hit ignorado");
+            Debug.Log($"{gameObject.name}: Invencible - Daño ignorado");
             return;
         }
 
         health -= damage;
+        Debug.Log($"{gameObject.name}: Recibió {damage} de daño. Vida: {health}");
 
+        // Aplicar knockback
         if (rb != null)
         {
             rb.linearVelocity = Vector2.zero;
-            float forceX = knockbackForce.x * knockbackDirection;
-            float forceY = knockbackForce.y;
-            rb.linearVelocity = new Vector2(forceX, forceY);
+            rb.linearVelocity = new Vector2(
+                knockbackForce.x * knockbackDirection,
+                knockbackForce.y
+            );
         }
 
         ExitGuardState();
         currentState = EnemyState.Stunned;
-        chaseTimer = 0f;  
+        ResetTimers();
 
         if (health <= 0)
         {
@@ -565,32 +598,29 @@ public class Enemigo : MonoBehaviour
         Destroy(gameObject);
     }
 
-    private IEnumerator InvincibilityFrames()
+    IEnumerator InvincibilityFrames()
     {
         isInvincible = true;
-        Color originalColor = spriteRenderer.color;
+
+        float flashDuration = invincibilityTime / 10f;
 
         for (int i = 0; i < 5; i++)
         {
-            spriteRenderer.color = Color.red;
-            yield return new WaitForSeconds(invincibilityTime / 10);
-            spriteRenderer.color = originalColor;
-            yield return new WaitForSeconds(invincibilityTime / 10);
+            if (spriteRenderer != null) spriteRenderer.color = Color.red;
+            yield return new WaitForSeconds(flashDuration);
+            if (spriteRenderer != null) spriteRenderer.color = originalColor;
+            yield return new WaitForSeconds(flashDuration);
         }
 
         isInvincible = false;
         currentState = EnemyState.Idle;
     }
 
-    private IEnumerator KnockbackInvincibility()
+    IEnumerator KnockbackInvincibility()
     {
         isKnockbackInvincible = true;
-        Debug.Log($"{gameObject.name}: Knockback invincibility activada");
-
         yield return new WaitForSeconds(knockbackInvincibilityTime);
-
         isKnockbackInvincible = false;
-        Debug.Log($"{gameObject.name}: Knockback invincibility terminada");
     }
 
     void UpdateAnimations()
@@ -609,37 +639,46 @@ public class Enemigo : MonoBehaviour
 
         Vector3 detectionPos = detectionPoint != null ? detectionPoint.position : transform.position;
 
+        // Rango de detección
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(detectionPos, detectionRange);
 
+        // Rango de ataque
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(detectionPos, attackRange);
 
+        // Punto de ataque
         if (attackPoint != null)
         {
             Gizmos.color = Color.magenta;
             Gizmos.DrawWireSphere(attackPoint.position, attackRadius);
         }
 
+        // Zona de patrulla
         if (shouldPatrol && Application.isPlaying)
         {
             Gizmos.color = Color.green;
-            Gizmos.DrawLine(startPosition - Vector2.right * patrolDistance, startPosition + Vector2.right * patrolDistance);
+            Gizmos.DrawLine(
+                new Vector2(startPosition.x - patrolDistance, startPosition.y),
+                new Vector2(startPosition.x + patrolDistance, startPosition.y)
+            );
         }
 
+        // Detección de bordes
         if (edgeCheckPoint != null)
         {
             float direction = isFacingRight ? 1f : -1f;
-            float checkPosX = transform.position.x + (edgeCheckOffset * direction);
-            float checkPosY = edgeCheckPoint.position.y;
-            Vector2 checkStartPoint = new Vector2(checkPosX, checkPosY);
+            Vector2 checkStartPoint = new Vector2(
+                transform.position.x + (edgeCheckOffset * direction),
+                edgeCheckPoint.position.y
+            );
 
             Gizmos.color = isAtEdge ? Color.red : Color.cyan;
             Gizmos.DrawLine(checkStartPoint, checkStartPoint + Vector2.down * edgeCheckDistance);
             Gizmos.DrawWireSphere(checkStartPoint + Vector2.down * edgeCheckDistance, 0.1f);
         }
 
-        // NUEVO: Visualizar raycast de detección en el editor
+        // Raycast de detección del jugador
         if (Application.isPlaying && player != null)
         {
             Vector2 directionToPlayer = (player.position - detectionPos).normalized;
