@@ -44,7 +44,7 @@ public class MainChar : MonoBehaviour
     public int attackDamage = 1;
     public float playerKnockbackForce = 3f;
     public GameObject sideAttackEffect;
-    
+
     // DOWN ATTACK DESHABILITADO TEMPORALMENTE
     [Header("Down Attack (DESHABILITADO)")]
     public bool enableDownAttack = false; // Cambia a true para reactivar
@@ -495,12 +495,24 @@ public class MainChar : MonoBehaviour
 
             foreach (Collider2D enemyCollider in hitEnemies)
             {
+                // Intentar obtener el script Enemigo
                 Enemigo enemy = enemyCollider.GetComponent<Enemigo>();
                 if (enemy != null)
                 {
                     hitSomething = true;
                     int enemyKnockbackDir = isFacingRight ? 1 : -1;
                     enemy.TakeDamage(attackDamage, enemyKnockbackDir);
+                }
+                else
+                {
+                    // Si no es Enemigo, intentar con EnemigoVolador
+                    EnemigoVolador flyingEnemy = enemyCollider.GetComponent<EnemigoVolador>();
+                    if (flyingEnemy != null)
+                    {
+                        hitSomething = true;
+                        int enemyKnockbackDir = isFacingRight ? 1 : -1;
+                        flyingEnemy.TakeDamage(attackDamage, enemyKnockbackDir);
+                    }
                 }
             }
 
@@ -534,11 +546,24 @@ public class MainChar : MonoBehaviour
 
             foreach (Collider2D enemyCollider in hitEnemies)
             {
+                // Intentar obtener el script Enemigo
                 Enemigo enemy = enemyCollider.GetComponent<Enemigo>();
                 if (enemy != null)
                 {
                     int enemyKnockbackDir = isFacingRight ? 1 : -1;
                     enemy.TakeDamage(attackDamage, enemyKnockbackDir);
+                    Debug.Log($"Golpeó a enemigo terrestre: {enemyCollider.name}");
+                }
+                else
+                {
+                    // Si no es Enemigo, intentar con EnemigoVolador
+                    EnemigoVolador flyingEnemy = enemyCollider.GetComponent<EnemigoVolador>();
+                    if (flyingEnemy != null)
+                    {
+                        int enemyKnockbackDir = isFacingRight ? 1 : -1;
+                        flyingEnemy.TakeDamage(attackDamage, enemyKnockbackDir);
+                        Debug.Log($"Golpeó a enemigo volador: {enemyCollider.name}");
+                    }
                 }
             }
         }
